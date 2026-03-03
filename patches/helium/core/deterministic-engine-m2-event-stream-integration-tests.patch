@@ -1,0 +1,38 @@
+diff --git a/chrome/browser/helium/deterministic/deterministic_session_service_unittest.cc b/chrome/browser/helium/deterministic/deterministic_session_service_unittest.cc
+index 527c723..f85ca10 100644
+--- a/chrome/browser/helium/deterministic/deterministic_session_service_unittest.cc
++++ b/chrome/browser/helium/deterministic/deterministic_session_service_unittest.cc
+@@ -180,6 +180,33 @@ TEST(DeterministicSessionServiceTest, StopClearsEventState) {
+   EXPECT_FALSE(service.last_step_committed_event().has_value());
+ }
+ 
++
++TEST(DeterministicSessionServiceTest, StreamsEventsInCommitThenFaultOrder) {
++  DeterministicSessionService service;
++  ASSERT_TRUE(service.CreateSession("stream", SessionConfig()));
++  ASSERT_TRUE(service.StartStepping());
++
++  auto ticket1 = service.BeginStep();
++  ASSERT_TRUE(ticket1.has_value());
++  EXPECT_TRUE(service.MarkStepPhaseDone(StepPhase::kTick, base::Milliseconds(1)));
++  EXPECT_TRUE(service.MarkStepPhaseDone(StepPhase::kRender, base::Milliseconds(1)));
++  EXPECT_TRUE(service.MarkStepPhaseDone(StepPhase::kPresent, base::Milliseconds(1)));
++  EXPECT_TRUE(service.MarkStepPhaseDone(StepPhase::kCapture, base::Milliseconds(1)));
++  EXPECT_TRUE(service.MarkStepPhaseDone(StepPhase::kEncode, base::Milliseconds(1)));
++  ASSERT_TRUE(service.CommitStep(ticket1->step_id));
++
++  auto ticket2 = service.BeginStep();
++  ASSERT_TRUE(ticket2.has_value());
++  EXPECT_TRUE(service.MarkStepPhaseDone(StepPhase::kTick, base::Milliseconds(1)));
++  ASSERT_TRUE(service.FailStep(FaultClass::kInvariantViolation, "stream-fault"));
++
++  auto events = service.recent_events();
++  ASSERT_EQ(events.size(), 2u);
++  EXPECT_LT(events[0].sequence, events[1].sequence);
++  EXPECT_EQ(events[0].type, SessionEventType::kStepCommitted);
++  EXPECT_EQ(events[1].type, SessionEventType::kFault);
++}
++
+ TEST(DeterministicSessionServiceTest, FaultRecoveryAndStop) {
+   DeterministicSessionService service;
+   ASSERT_TRUE(service.CreateSession("s", SessionConfig()));

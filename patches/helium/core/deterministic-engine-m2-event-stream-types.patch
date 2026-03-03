@@ -1,0 +1,120 @@
+diff --git a/chrome/browser/helium/deterministic/deterministic_session_event_stream.cc b/chrome/browser/helium/deterministic/deterministic_session_event_stream.cc
+new file mode 100644
+index 0000000..2371af6
+--- /dev/null
++++ b/chrome/browser/helium/deterministic/deterministic_session_event_stream.cc
+@@ -0,0 +1,52 @@
++// Copyright 2026 The Helium Authors
++// You can use, redistribute, and/or modify this source code under
++// the terms of the GPL-3.0 license that can be found in the LICENSE file.
++
++#include "chrome/browser/helium/deterministic/deterministic_session_event_stream.h"
++
++namespace helium::deterministic {
++
++SessionEventStream::SessionEventStream(size_t max_events)
++    : max_events_(max_events > 0 ? max_events : 1) {}
++
++SessionEventStream::~SessionEventStream() = default;
++
++void SessionEventStream::PushStepCommitted(const StepCommittedEvent& event) {
++  events_.push_back(SessionEventEnvelope{
++      .sequence = next_sequence_++,
++      .type = SessionEventType::kStepCommitted,
++      .step_committed = event,
++      .fault = std::nullopt,
++  });
++  TrimIfNeeded();
++}
++
++void SessionEventStream::PushFault(const FaultEvent& event) {
++  events_.push_back(SessionEventEnvelope{
++      .sequence = next_sequence_++,
++      .type = SessionEventType::kFault,
++      .step_committed = std::nullopt,
++      .fault = event,
++  });
++  TrimIfNeeded();
++}
++
++std::vector<SessionEventEnvelope> SessionEventStream::events() const {
++  return std::vector<SessionEventEnvelope>(events_.begin(), events_.end());
++}
++
++size_t SessionEventStream::size() const {
++  return events_.size();
++}
++
++void SessionEventStream::Clear() {
++  events_.clear();
++}
++
++void SessionEventStream::TrimIfNeeded() {
++  while (events_.size() > max_events_) {
++    events_.pop_front();
++  }
++}
++
++}  // namespace helium::deterministic
+diff --git a/chrome/browser/helium/deterministic/deterministic_session_event_stream.h b/chrome/browser/helium/deterministic/deterministic_session_event_stream.h
+new file mode 100644
+index 0000000..4c71a06
+--- /dev/null
++++ b/chrome/browser/helium/deterministic/deterministic_session_event_stream.h
+@@ -0,0 +1,56 @@
++// Copyright 2026 The Helium Authors
++// You can use, redistribute, and/or modify this source code under
++// the terms of the GPL-3.0 license that can be found in the LICENSE file.
++
++#ifndef CHROME_BROWSER_HELIUM_DETERMINISTIC_DETERMINISTIC_SESSION_EVENT_STREAM_H_
++#define CHROME_BROWSER_HELIUM_DETERMINISTIC_DETERMINISTIC_SESSION_EVENT_STREAM_H_
++
++#include <stdint.h>
++
++#include <deque>
++#include <optional>
++#include <vector>
++
++#include "chrome/browser/helium/deterministic/deterministic_events.h"
++
++namespace helium::deterministic {
++
++enum class SessionEventType {
++  kStepCommitted,
++  kFault,
++};
++
++struct SessionEventEnvelope {
++  uint64_t sequence = 0;
++  SessionEventType type = SessionEventType::kStepCommitted;
++  std::optional<StepCommittedEvent> step_committed;
++  std::optional<FaultEvent> fault;
++};
++
++class SessionEventStream {
++ public:
++  explicit SessionEventStream(size_t max_events = 256);
++  ~SessionEventStream();
++
++  SessionEventStream(const SessionEventStream&) = delete;
++  SessionEventStream& operator=(const SessionEventStream&) = delete;
++
++  void PushStepCommitted(const StepCommittedEvent& event);
++  void PushFault(const FaultEvent& event);
++
++  std::vector<SessionEventEnvelope> events() const;
++  size_t size() const;
++
++  void Clear();
++
++ private:
++  void TrimIfNeeded();
++
++  size_t max_events_;
++  uint64_t next_sequence_ = 1;
++  std::deque<SessionEventEnvelope> events_;
++};
++
++}  // namespace helium::deterministic
++
++#endif  // CHROME_BROWSER_HELIUM_DETERMINISTIC_DETERMINISTIC_SESSION_EVENT_STREAM_H_

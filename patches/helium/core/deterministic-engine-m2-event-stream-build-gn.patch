@@ -1,0 +1,25 @@
+diff --git a/chrome/browser/BUILD.gn b/chrome/browser/BUILD.gn
+index a6e7c9b..cd42363 100644
+--- a/chrome/browser/BUILD.gn
++++ b/chrome/browser/BUILD.gn
+@@ -4,6 +4,8 @@ static_library("browser") {
+     "channel_selection.h",
+     "child_process_host_flags.h",
+     "helium/deterministic/deterministic_session_service.cc",
++    "helium/deterministic/deterministic_session_event_stream.cc",
++    "helium/deterministic/deterministic_session_event_stream.h",
+     "helium/deterministic/deterministic_session_service.h",
+     "helium/deterministic/virtual_time_controller.cc",
+     "helium/deterministic/virtual_time_controller.h",
+diff --git a/chrome/test/BUILD.gn b/chrome/test/BUILD.gn
+index 689b40e..a13d226 100644
+--- a/chrome/test/BUILD.gn
++++ b/chrome/test/BUILD.gn
+@@ -1,6 +1,7 @@
+ test("unit_tests") {
+   sources = [
+     "../browser/history_clusters/history_clusters_tab_helper_unittest.cc",
++    "../browser/helium/deterministic/deterministic_session_event_stream_unittest.cc",
+     "../browser/helium/deterministic/deterministic_session_service_unittest.cc",
+     "../browser/helium/deterministic/virtual_time_controller_unittest.cc",
+     "../browser/idle/idle_detection_permission_context_unittest.cc",

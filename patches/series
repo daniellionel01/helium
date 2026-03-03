@@ -213,6 +213,11 @@ helium/core/deterministic-engine-m2-event-types.patch
 helium/core/deterministic-engine-m2-event-integration.patch
 helium/core/deterministic-engine-m2-event-tests.patch
 helium/core/deterministic-engine-m2-event-lifecycle.patch
+helium/core/deterministic-engine-m2-event-stream-types.patch
+helium/core/deterministic-engine-m2-event-stream-tests.patch
+helium/core/deterministic-engine-m2-event-stream-build-gn.patch
+helium/core/deterministic-engine-m2-event-stream-integration.patch
+helium/core/deterministic-engine-m2-event-stream-integration-tests.patch
 helium/core/add-low-power-framerate-flag.patch
 helium/core/add-update-channel-flag.patch
 helium/core/add-updater-preference.patch

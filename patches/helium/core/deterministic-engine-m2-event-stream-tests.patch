@@ -1,0 +1,61 @@
+diff --git a/chrome/browser/helium/deterministic/deterministic_session_event_stream_unittest.cc b/chrome/browser/helium/deterministic/deterministic_session_event_stream_unittest.cc
+new file mode 100644
+index 0000000..cf7195e
+--- /dev/null
++++ b/chrome/browser/helium/deterministic/deterministic_session_event_stream_unittest.cc
+@@ -0,0 +1,55 @@
++// Copyright 2026 The Helium Authors
++// You can use, redistribute, and/or modify this source code under
++// the terms of the GPL-3.0 license that can be found in the LICENSE file.
++
++#include "chrome/browser/helium/deterministic/deterministic_session_event_stream.h"
++
++#include "testing/gtest/include/gtest/gtest.h"
++
++namespace helium::deterministic {
++
++TEST(DeterministicSessionEventStreamTest, PreservesInsertionOrderAndSequence) {
++  SessionEventStream stream;
++
++  stream.PushStepCommitted(StepCommittedEvent{.session_id = "s", .step_id = 1});
++  stream.PushFault(FaultEvent{.session_id = "s"});
++
++  auto events = stream.events();
++  ASSERT_EQ(events.size(), 2u);
++
++  EXPECT_EQ(events[0].sequence, 1u);
++  EXPECT_EQ(events[0].type, SessionEventType::kStepCommitted);
++  ASSERT_TRUE(events[0].step_committed.has_value());
++  EXPECT_EQ(events[0].step_committed->step_id, 1u);
++
++  EXPECT_EQ(events[1].sequence, 2u);
++  EXPECT_EQ(events[1].type, SessionEventType::kFault);
++  ASSERT_TRUE(events[1].fault.has_value());
++}
++
++TEST(DeterministicSessionEventStreamTest, EnforcesRetentionLimit) {
++  SessionEventStream stream(/*max_events=*/2);
++
++  stream.PushStepCommitted(StepCommittedEvent{.session_id = "s", .step_id = 1});
++  stream.PushStepCommitted(StepCommittedEvent{.session_id = "s", .step_id = 2});
++  stream.PushStepCommitted(StepCommittedEvent{.session_id = "s", .step_id = 3});
++
++  auto events = stream.events();
++  ASSERT_EQ(events.size(), 2u);
++  ASSERT_TRUE(events[0].step_committed.has_value());
++  ASSERT_TRUE(events[1].step_committed.has_value());
++  EXPECT_EQ(events[0].step_committed->step_id, 2u);
++  EXPECT_EQ(events[1].step_committed->step_id, 3u);
++}
++
++TEST(DeterministicSessionEventStreamTest, ClearEmptiesStream) {
++  SessionEventStream stream;
++  stream.PushFault(FaultEvent{.session_id = "s"});
++  ASSERT_EQ(stream.size(), 1u);
++
++  stream.Clear();
++  EXPECT_EQ(stream.size(), 0u);
++  EXPECT_TRUE(stream.events().empty());
++}
++
++}  // namespace helium::deterministic

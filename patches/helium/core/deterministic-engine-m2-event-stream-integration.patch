@@ -1,0 +1,58 @@
+diff --git a/chrome/browser/helium/deterministic/deterministic_session_service.cc b/chrome/browser/helium/deterministic/deterministic_session_service.cc
+index 87922ff..4f7d2d8 100644
+--- a/chrome/browser/helium/deterministic/deterministic_session_service.cc
++++ b/chrome/browser/helium/deterministic/deterministic_session_service.cc
+@@ -23,6 +23,7 @@ bool DeterministicSessionService::CreateSession(std::string session_id,
+   orchestrator_.Reset();
+   last_step_committed_event_.reset();
+   last_fault_event_.reset();
++  event_stream_.Clear();
+   return true;
+ }
+ 
+@@ -87,6 +88,7 @@ bool DeterministicSessionService::CommitStep(uint64_t step_id) {
+     if (metrics.has_value()) {
+       last_step_committed_event_ =
+           BuildStepCommittedEvent(session_id_.value(), metrics.value());
++      event_stream_.PushStepCommitted(last_step_committed_event_.value());
+     }
+   }
+ 
+@@ -105,6 +107,7 @@ bool DeterministicSessionService::FailStep(FaultClass fault,
+     last_fault_event_ = BuildFaultEvent(session_id_.value(), fault, detail,
+                                         controller_.virtual_time(),
+                                         orchestrator_.last_metrics());
++    event_stream_.PushFault(last_fault_event_.value());
+   }
+ 
+   return controller_.Fail(fault, std::move(detail));
+diff --git a/chrome/browser/helium/deterministic/deterministic_session_service.h b/chrome/browser/helium/deterministic/deterministic_session_service.h
+index 7f17b5e..4fe060e 100644
+--- a/chrome/browser/helium/deterministic/deterministic_session_service.h
++++ b/chrome/browser/helium/deterministic/deterministic_session_service.h
+@@ -12,6 +12,7 @@
+ 
+ #include "base/time/time.h"
+ #include "chrome/browser/helium/deterministic/deterministic_events.h"
++#include "chrome/browser/helium/deterministic/deterministic_session_event_stream.h"
+ #include "chrome/browser/helium/deterministic/deterministic_session_snapshot.h"
+ #include "chrome/browser/helium/deterministic/step_transaction_orchestrator.h"
+ #include "chrome/browser/helium/deterministic/virtual_time_controller.h"
+@@ -57,6 +58,9 @@ class DeterministicSessionService {
+     return last_step_committed_event_;
+   }
+   std::optional<FaultEvent> last_fault_event() const { return last_fault_event_; }
++  std::vector<SessionEventEnvelope> recent_events() const {
++    return event_stream_.events();
++  }
+ 
+  private:
+   bool has_session_ = false;
+@@ -65,6 +69,7 @@ class DeterministicSessionService {
+   StepTransactionOrchestrator orchestrator_;
+   std::optional<StepCommittedEvent> last_step_committed_event_;
+   std::optional<FaultEvent> last_fault_event_;
++  SessionEventStream event_stream_;
+ };
+ 
+ }  // namespace helium::deterministic
