@@ -1,0 +1,58 @@
+diff --git a/chrome/browser/helium/deterministic/deterministic_control_service_unittest.cc b/chrome/browser/helium/deterministic/deterministic_control_service_unittest.cc
+new file mode 100644
+index 0000000..cc261cb
+--- /dev/null
++++ b/chrome/browser/helium/deterministic/deterministic_control_service_unittest.cc
+@@ -0,0 +1,52 @@
++// Copyright 2026 The Helium Authors
++// You can use, redistribute, and/or modify this source code under
++// the terms of the GPL-3.0 license that can be found in the LICENSE file.
++
++#include "chrome/browser/helium/deterministic/deterministic_control_service.h"
++
++#include "testing/gtest/include/gtest/gtest.h"
++
++namespace helium::deterministic {
++
++TEST(DeterministicControlServiceTest, CreateSessionValidatesInput) {
++  DeterministicControlService control;
++
++  auto bad = control.CreateSession(CreateSessionRequest{.session_id = ""});
++  EXPECT_FALSE(bad.ok);
++
++  auto good =
++      control.CreateSession(CreateSessionRequest{.session_id = "control-session"});
++  EXPECT_TRUE(good.ok);
++}
++
++TEST(DeterministicControlServiceTest, StepFailsBeforeStartingStepping) {
++  DeterministicControlService control;
++  ASSERT_TRUE(control.CreateSession(CreateSessionRequest{.session_id = "s"}).ok);
++
++  auto step = control.Step(StepRequest{.frames = 1});
++  EXPECT_FALSE(step.ok);
++}
++
++TEST(DeterministicControlServiceTest, StepCommitsRequestedFrames) {
++  DeterministicControlService control;
++  ASSERT_TRUE(control.CreateSession(CreateSessionRequest{.session_id = "s"}).ok);
++  ASSERT_TRUE(control.StartStepping().ok);
++
++  auto step = control.Step(StepRequest{.frames = 2});
++  EXPECT_TRUE(step.ok);
++  EXPECT_EQ(step.committed_frames, 2u);
++  EXPECT_EQ(step.snapshot.last_committed_step_id, 2u);
++}
++
++TEST(DeterministicControlServiceTest, StateIncludesRecentEvents) {
++  DeterministicControlService control;
++  ASSERT_TRUE(control.CreateSession(CreateSessionRequest{.session_id = "s"}).ok);
++  ASSERT_TRUE(control.StartStepping().ok);
++  ASSERT_TRUE(control.Step(StepRequest{.frames = 1}).ok);
++
++  auto state = control.GetState();
++  ASSERT_FALSE(state.recent_events.empty());
++  EXPECT_EQ(state.recent_events.back().type, SessionEventType::kStepCommitted);
++}
++
++}  // namespace helium::deterministic

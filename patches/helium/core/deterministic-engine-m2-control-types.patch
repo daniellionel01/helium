@@ -1,0 +1,72 @@
+diff --git a/chrome/browser/helium/deterministic/deterministic_control_types.h b/chrome/browser/helium/deterministic/deterministic_control_types.h
+new file mode 100644
+index 0000000..0ced404
+--- /dev/null
++++ b/chrome/browser/helium/deterministic/deterministic_control_types.h
+@@ -0,0 +1,66 @@
++// Copyright 2026 The Helium Authors
++// You can use, redistribute, and/or modify this source code under
++// the terms of the GPL-3.0 license that can be found in the LICENSE file.
++
++#ifndef CHROME_BROWSER_HELIUM_DETERMINISTIC_DETERMINISTIC_CONTROL_TYPES_H_
++#define CHROME_BROWSER_HELIUM_DETERMINISTIC_DETERMINISTIC_CONTROL_TYPES_H_
++
++#include <stdint.h>
++
++#include <optional>
++#include <string>
++#include <vector>
++
++#include "chrome/browser/helium/deterministic/deterministic_session_event_stream.h"
++#include "chrome/browser/helium/deterministic/deterministic_session_snapshot.h"
++#include "chrome/browser/helium/deterministic/virtual_time_controller.h"
++
++namespace helium::deterministic {
++
++struct CreateSessionRequest {
++  std::string session_id;
++  SessionConfig config;
++};
++
++struct CreateSessionResult {
++  bool ok = false;
++  std::string error;
++  DeterministicSessionSnapshot snapshot;
++};
++
++struct StartResult {
++  bool ok = false;
++  std::string error;
++  DeterministicSessionSnapshot snapshot;
++};
++
++struct PauseResult {
++  bool ok = false;
++  std::string error;
++  DeterministicSessionSnapshot snapshot;
++};
++
++struct StopResult {
++  bool ok = false;
++  std::string error;
++};
++
++struct StepRequest {
++  uint64_t frames = 1;
++};
++
++struct StepResult {
++  bool ok = false;
++  std::string error;
++  uint64_t committed_frames = 0;
++  DeterministicSessionSnapshot snapshot;
++};
++
++struct StateResult {
++  DeterministicSessionSnapshot snapshot;
++  std::vector<SessionEventEnvelope> recent_events;
++};
++
++}  // namespace helium::deterministic
++
++#endif  // CHROME_BROWSER_HELIUM_DETERMINISTIC_DETERMINISTIC_CONTROL_TYPES_H_
