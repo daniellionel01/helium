@@ -1,0 +1,199 @@
+diff --git a/chrome/browser/helium/deterministic/virtual_time_controller.cc b/chrome/browser/helium/deterministic/virtual_time_controller.cc
+index 5b3105d..7ba3b0a 100644
+--- a/chrome/browser/helium/deterministic/virtual_time_controller.cc
++++ b/chrome/browser/helium/deterministic/virtual_time_controller.cc
+@@ -11,6 +11,10 @@ namespace {
+ constexpr int kSupportedFps30 = 30;
+ constexpr int kSupportedFps60 = 60;
+ 
++bool IsSteppableState(EngineState state) {
++  return state == EngineState::kRunning || state == EngineState::kStepping;
++}
++
+ }  // namespace
+ 
+ bool VirtualTimeController::Configure(const SessionConfig& config) {
+@@ -22,11 +26,17 @@ bool VirtualTimeController::Configure(const SessionConfig& config) {
+     return false;
+   }
+ 
++  if (state_ == EngineState::kRunning || state_ == EngineState::kStepping) {
++    return false;
++  }
++
+   state_ = EngineState::kConfigured;
+   config_ = config;
+   last_committed_step_id_ = 0;
+   active_step_id_ = 0;
+   committed_virtual_time_ = base::Microseconds(0);
++  last_fault_ = FaultClass::kInvariantViolation;
++  last_fault_detail_.clear();
+   return true;
+ }
+ 
+@@ -34,6 +44,9 @@ bool VirtualTimeController::StartRunning() {
+   if (state_ != EngineState::kConfigured && state_ != EngineState::kPaused) {
+     return false;
+   }
++  if (active_step_id_ != 0) {
++    return false;
++  }
+ 
+   state_ = EngineState::kRunning;
+   return true;
+@@ -43,13 +56,16 @@ bool VirtualTimeController::StartStepping() {
+   if (state_ != EngineState::kConfigured && state_ != EngineState::kPaused) {
+     return false;
+   }
++  if (active_step_id_ != 0) {
++    return false;
++  }
+ 
+   state_ = EngineState::kStepping;
+   return true;
+ }
+ 
+ bool VirtualTimeController::Pause() {
+-  if (state_ != EngineState::kRunning && state_ != EngineState::kStepping) {
++  if (!IsSteppableState(state_) || active_step_id_ != 0) {
+     return false;
+   }
+ 
+@@ -58,8 +74,7 @@ bool VirtualTimeController::Pause() {
+ }
+ 
+ std::optional<StepTicket> VirtualTimeController::BeginStep() {
+-  if ((state_ != EngineState::kRunning && state_ != EngineState::kStepping) ||
+-      active_step_id_ != 0) {
++  if (!IsSteppableState(state_) || active_step_id_ != 0) {
+     return std::nullopt;
+   }
+ 
+@@ -71,6 +86,10 @@ std::optional<StepTicket> VirtualTimeController::BeginStep() {
+ }
+ 
+ bool VirtualTimeController::CommitStep(uint64_t step_id) {
++  if (!IsSteppableState(state_)) {
++    return false;
++  }
++
+   if (active_step_id_ == 0 || active_step_id_ != step_id) {
+     return false;
+   }
+@@ -81,14 +100,15 @@ bool VirtualTimeController::CommitStep(uint64_t step_id) {
+   return true;
+ }
+ 
+-bool VirtualTimeController::Fail(std::string detail) {
++bool VirtualTimeController::Fail(FaultClass fault, std::string detail) {
+   if (state_ == EngineState::kIdle || state_ == EngineState::kFaulted) {
+     return false;
+   }
+ 
+   state_ = EngineState::kFaulted;
++  last_fault_ = fault;
+   active_step_id_ = 0;
+-  static_cast<void>(detail);
++  last_fault_detail_ = std::move(detail);
+   return true;
+ }
+ 
+@@ -99,6 +119,7 @@ bool VirtualTimeController::Recover() {
+ 
+   state_ = EngineState::kPaused;
+   active_step_id_ = 0;
++  last_fault_detail_.clear();
+   return true;
+ }
+ 
+diff --git a/chrome/browser/helium/deterministic/virtual_time_controller.h b/chrome/browser/helium/deterministic/virtual_time_controller.h
+index 2b63177..26a515c 100644
+--- a/chrome/browser/helium/deterministic/virtual_time_controller.h
++++ b/chrome/browser/helium/deterministic/virtual_time_controller.h
+@@ -28,6 +28,14 @@ enum class Strictness {
+   kHard,
+ };
+ 
++enum class FaultClass {
++  kAckTimeout,
++  kCaptureTimeout,
++  kEncoderBackendError,
++  kSurfaceMissing,
++  kInvariantViolation,
++};
++
+ struct SessionConfig {
+   int fps = 60;
+   Strictness strictness = Strictness::kBalanced;
+@@ -55,12 +63,17 @@ class VirtualTimeController {
+   std::optional<StepTicket> BeginStep();
+   bool CommitStep(uint64_t step_id);
+ 
+-  bool Fail(std::string detail);
++  bool Fail(FaultClass fault, std::string detail);
+   bool Recover();
+ 
+   EngineState state() const { return state_; }
+   uint64_t last_committed_step_id() const { return last_committed_step_id_; }
+   base::TimeDelta virtual_time() const { return committed_virtual_time_; }
++  uint64_t active_step_id_for_testing() const { return active_step_id_; }
++  FaultClass last_fault_for_testing() const { return last_fault_; }
++  const std::string& last_fault_detail_for_testing() const {
++    return last_fault_detail_;
++  }
+ 
+  private:
+   base::TimeDelta FixedStepDuration() const;
+@@ -69,6 +82,8 @@ class VirtualTimeController {
+   SessionConfig config_;
+   uint64_t last_committed_step_id_ = 0;
+   uint64_t active_step_id_ = 0;
++  FaultClass last_fault_ = FaultClass::kInvariantViolation;
++  std::string last_fault_detail_;
+   base::TimeDelta committed_virtual_time_;
+ };
+ 
+diff --git a/chrome/browser/helium/deterministic/virtual_time_controller_unittest.cc b/chrome/browser/helium/deterministic/virtual_time_controller_unittest.cc
+index 95dd26a..b62b251 100644
+--- a/chrome/browser/helium/deterministic/virtual_time_controller_unittest.cc
++++ b/chrome/browser/helium/deterministic/virtual_time_controller_unittest.cc
+@@ -58,14 +58,19 @@ TEST(VirtualTimeControllerTest, RequiresRecoverAfterFault) {
+   ASSERT_TRUE(controller.Configure(SessionConfig()));
+   ASSERT_TRUE(controller.StartRunning());
+ 
+-  EXPECT_TRUE(controller.Fail("forced fault for test"));
++  EXPECT_TRUE(controller.Fail(FaultClass::kInvariantViolation,
++                              "forced fault for test"));
+   EXPECT_EQ(controller.state(), EngineState::kFaulted);
++  EXPECT_EQ(controller.last_fault_for_testing(),
++            FaultClass::kInvariantViolation);
++  EXPECT_EQ(controller.last_fault_detail_for_testing(), "forced fault for test");
+ 
+   EXPECT_FALSE(controller.StartStepping());
+   EXPECT_FALSE(controller.BeginStep().has_value());
+ 
+   EXPECT_TRUE(controller.Recover());
+   EXPECT_EQ(controller.state(), EngineState::kPaused);
++  EXPECT_TRUE(controller.last_fault_detail_for_testing().empty());
+ }
+ 
+ TEST(VirtualTimeControllerTest, PreventsConcurrentSteps) {
+@@ -99,4 +104,18 @@ TEST(VirtualTimeControllerTest, PauseFailsOutsideSteppableStates) {
+   EXPECT_TRUE(controller.Pause());
+ }
+ 
++
++TEST(VirtualTimeControllerTest, RejectsPauseWhileStepIsActive) {
++  VirtualTimeController controller;
++
++  ASSERT_TRUE(controller.Configure(SessionConfig()));
++  ASSERT_TRUE(controller.StartStepping());
++
++  auto ticket = controller.BeginStep();
++  ASSERT_TRUE(ticket.has_value());
++
++  EXPECT_FALSE(controller.Pause());
++  EXPECT_EQ(controller.active_step_id_for_testing(), ticket->step_id);
++}
++
+ }  // namespace helium::deterministic
