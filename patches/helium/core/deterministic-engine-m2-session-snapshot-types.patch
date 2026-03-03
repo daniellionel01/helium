@@ -1,0 +1,41 @@
+diff --git a/chrome/browser/helium/deterministic/deterministic_session_snapshot.h b/chrome/browser/helium/deterministic/deterministic_session_snapshot.h
+new file mode 100644
+index 0000000..5015049
+--- /dev/null
++++ b/chrome/browser/helium/deterministic/deterministic_session_snapshot.h
+@@ -0,0 +1,35 @@
++// Copyright 2026 The Helium Authors
++// You can use, redistribute, and/or modify this source code under
++// the terms of the GPL-3.0 license that can be found in the LICENSE file.
++
++#ifndef CHROME_BROWSER_HELIUM_DETERMINISTIC_DETERMINISTIC_SESSION_SNAPSHOT_H_
++#define CHROME_BROWSER_HELIUM_DETERMINISTIC_DETERMINISTIC_SESSION_SNAPSHOT_H_
++
++#include <stdint.h>
++
++#include <optional>
++#include <string>
++
++#include "base/time/time.h"
++#include "chrome/browser/helium/deterministic/step_transaction_types.h"
++#include "chrome/browser/helium/deterministic/virtual_time_controller.h"
++
++namespace helium::deterministic {
++
++struct DeterministicSessionSnapshot {
++  bool has_session = false;
++  std::optional<std::string> session_id;
++
++  EngineState state = EngineState::kIdle;
++  uint64_t last_committed_step_id = 0;
++  base::TimeDelta virtual_time;
++
++  bool has_active_transaction = false;
++  std::optional<uint64_t> active_step_id;
++
++  std::optional<StepMetrics> last_step_metrics;
++};
++
++}  // namespace helium::deterministic
++
++#endif  // CHROME_BROWSER_HELIUM_DETERMINISTIC_DETERMINISTIC_SESSION_SNAPSHOT_H_

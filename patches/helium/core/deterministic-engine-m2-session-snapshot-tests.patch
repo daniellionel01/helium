@@ -1,0 +1,49 @@
+diff --git a/chrome/browser/helium/deterministic/deterministic_session_service_unittest.cc b/chrome/browser/helium/deterministic/deterministic_session_service_unittest.cc
+index c78b65b..da013ca 100644
+--- a/chrome/browser/helium/deterministic/deterministic_session_service_unittest.cc
++++ b/chrome/browser/helium/deterministic/deterministic_session_service_unittest.cc
+@@ -82,6 +82,44 @@ TEST(DeterministicSessionServiceTest, CommitRequiresAllPhases) {
+   EXPECT_FALSE(service.CommitStep(ticket->step_id));
+ }
+ 
++
++TEST(DeterministicSessionServiceTest, SnapshotReflectsLifecycleAndProgress) {
++  DeterministicSessionService service;
++
++  auto initial = service.GetSnapshot();
++  EXPECT_FALSE(initial.has_session);
++  EXPECT_EQ(initial.state, EngineState::kIdle);
++
++  ASSERT_TRUE(service.CreateSession("snap", SessionConfig()));
++  ASSERT_TRUE(service.StartStepping());
++
++  auto in_step = service.BeginStep();
++  ASSERT_TRUE(in_step.has_value());
++  EXPECT_TRUE(service.MarkStepPhaseDone(StepPhase::kTick, base::Milliseconds(1)));
++
++  auto step_snapshot = service.GetSnapshot();
++  EXPECT_TRUE(step_snapshot.has_session);
++  ASSERT_TRUE(step_snapshot.session_id.has_value());
++  EXPECT_EQ(step_snapshot.session_id.value(), "snap");
++  EXPECT_EQ(step_snapshot.state, EngineState::kStepping);
++  EXPECT_TRUE(step_snapshot.has_active_transaction);
++  ASSERT_TRUE(step_snapshot.active_step_id.has_value());
++  EXPECT_EQ(step_snapshot.active_step_id.value(), in_step->step_id);
++
++  EXPECT_TRUE(service.MarkStepPhaseDone(StepPhase::kRender, base::Milliseconds(1)));
++  EXPECT_TRUE(service.MarkStepPhaseDone(StepPhase::kPresent, base::Milliseconds(1)));
++  EXPECT_TRUE(service.MarkStepPhaseDone(StepPhase::kCapture, base::Milliseconds(1)));
++  EXPECT_TRUE(service.MarkStepPhaseDone(StepPhase::kEncode, base::Milliseconds(1)));
++  ASSERT_TRUE(service.CommitStep(in_step->step_id));
++
++  auto committed = service.GetSnapshot();
++  EXPECT_TRUE(committed.has_session);
++  EXPECT_FALSE(committed.has_active_transaction);
++  EXPECT_EQ(committed.last_committed_step_id, 1u);
++  ASSERT_TRUE(committed.last_step_metrics.has_value());
++  EXPECT_EQ(committed.last_step_metrics->step_id, 1u);
++}
++
+ TEST(DeterministicSessionServiceTest, FaultRecoveryAndStop) {
+   DeterministicSessionService service;
+   ASSERT_TRUE(service.CreateSession("s", SessionConfig()));

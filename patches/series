@@ -206,6 +206,9 @@ helium/core/deterministic-engine-m2-orchestrator.patch
 helium/core/deterministic-engine-m2-orchestrator-build-gn.patch
 helium/core/deterministic-engine-m2-session-orchestrator-refactor.patch
 helium/core/deterministic-engine-m2-fault-context.patch
+helium/core/deterministic-engine-m2-session-snapshot-types.patch
+helium/core/deterministic-engine-m2-session-snapshot-integration.patch
+helium/core/deterministic-engine-m2-session-snapshot-tests.patch
 helium/core/add-low-power-framerate-flag.patch
 helium/core/add-update-channel-flag.patch
 helium/core/add-updater-preference.patch

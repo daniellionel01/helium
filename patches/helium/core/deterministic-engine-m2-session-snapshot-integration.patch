@@ -1,0 +1,47 @@
+diff --git a/chrome/browser/helium/deterministic/deterministic_session_service.cc b/chrome/browser/helium/deterministic/deterministic_session_service.cc
+index 7424283..feec91c 100644
+--- a/chrome/browser/helium/deterministic/deterministic_session_service.cc
++++ b/chrome/browser/helium/deterministic/deterministic_session_service.cc
+@@ -128,4 +128,22 @@ base::TimeDelta DeterministicSessionService::virtual_time() const {
+   return controller_.virtual_time();
+ }
+ 
++DeterministicSessionSnapshot DeterministicSessionService::GetSnapshot() const {
++  DeterministicSessionSnapshot snapshot;
++  snapshot.has_session = has_session_;
++
++  if (!has_session_) {
++    return snapshot;
++  }
++
++  snapshot.session_id = session_id_;
++  snapshot.state = state();
++  snapshot.last_committed_step_id = last_committed_step_id();
++  snapshot.virtual_time = virtual_time();
++  snapshot.has_active_transaction = orchestrator_.has_active_transaction();
++  snapshot.active_step_id = orchestrator_.active_step_id();
++  snapshot.last_step_metrics = orchestrator_.last_metrics();
++  return snapshot;
++}
++
+ }  // namespace helium::deterministic
+diff --git a/chrome/browser/helium/deterministic/deterministic_session_service.h b/chrome/browser/helium/deterministic/deterministic_session_service.h
+index d0543c6..d3822f7 100644
+--- a/chrome/browser/helium/deterministic/deterministic_session_service.h
++++ b/chrome/browser/helium/deterministic/deterministic_session_service.h
+@@ -11,6 +11,7 @@
+ #include <string>
+ 
+ #include "base/time/time.h"
++#include "chrome/browser/helium/deterministic/deterministic_session_snapshot.h"
+ #include "chrome/browser/helium/deterministic/step_transaction_orchestrator.h"
+ #include "chrome/browser/helium/deterministic/virtual_time_controller.h"
+ 
+@@ -50,6 +51,7 @@ class DeterministicSessionService {
+   std::optional<StepMetrics> last_step_metrics() const {
+     return orchestrator_.last_metrics();
+   }
++  DeterministicSessionSnapshot GetSnapshot() const;
+ 
+  private:
+   bool has_session_ = false;
