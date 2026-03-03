@@ -1,0 +1,103 @@
+--- /dev/null
++++ b/chrome/browser/helium/deterministic/README.md
+@@ -0,0 +1,18 @@
++# Deterministic Recording Engine (M1 Scaffold)
++
++This patch introduces a minimal source scaffold for Helium's deterministic
++recording engine in Chromium.
++
++Scope:
++- deterministic session state model
++- fixed-step virtual time API surface
++- explicit fault and recovery hooks
++
++Non-goals:
++- compositor/Viz barriers
++- capture or encode integration
++
++Follow-up milestones add:
++- browser process service wiring
++- DevTools control domain
++- compositor/capture commit barriers
++- cross-process synchronization
++
+--- /dev/null
++++ b/chrome/browser/helium/deterministic/virtual_time_controller.h
+@@ -0,0 +1,77 @@
++// Copyright 2026 The Helium Authors
++// You can use, redistribute, and/or modify this source code under
++// the terms of the GPL-3.0 license that can be found in the LICENSE file.
++
++#ifndef CHROME_BROWSER_HELIUM_DETERMINISTIC_VIRTUAL_TIME_CONTROLLER_H_
++#define CHROME_BROWSER_HELIUM_DETERMINISTIC_VIRTUAL_TIME_CONTROLLER_H_
++
++#include <stdint.h>
++
++#include <optional>
++#include <string>
++
++#include "base/time/time.h"
++
++namespace helium::deterministic {
++
++enum class EngineState {
++  kIdle,
++  kConfigured,
++  kRunning,
++  kStepping,
++  kPaused,
++  kFaulted,
++};
++
++enum class Strictness {
++  kBalanced,
++  kHard,
++};
++
++struct SessionConfig {
++  int fps = 60;
++  Strictness strictness = Strictness::kBalanced;
++  int network_budget_per_step_ms = 3;
++};
++
++struct StepTicket {
++  uint64_t step_id = 0;
++  base::TimeDelta target_virtual_time;
++};
++
++class VirtualTimeController {
++ public:
++  VirtualTimeController() = default;
++  ~VirtualTimeController() = default;
++
++  VirtualTimeController(const VirtualTimeController&) = delete;
++  VirtualTimeController& operator=(const VirtualTimeController&) = delete;
++
++  bool Configure(const SessionConfig& config);
++  bool StartRunning();
++  bool StartStepping();
++  bool Pause();
++
++  std::optional<StepTicket> BeginStep();
++  bool CommitStep(uint64_t step_id);
++
++  bool Fail(std::string detail);
++  bool Recover();
++
++  EngineState state() const { return state_; }
++  uint64_t last_committed_step_id() const { return last_committed_step_id_; }
++  base::TimeDelta virtual_time() const { return committed_virtual_time_; }
++
++ private:
++  base::TimeDelta FixedStepDuration() const;
++
++  EngineState state_ = EngineState::kIdle;
++  SessionConfig config_;
++  uint64_t last_committed_step_id_ = 0;
++  uint64_t active_step_id_ = 0;
++  base::TimeDelta committed_virtual_time_;
++};
++
++}  // namespace helium::deterministic
++
++#endif  // CHROME_BROWSER_HELIUM_DETERMINISTIC_VIRTUAL_TIME_CONTROLLER_H_
