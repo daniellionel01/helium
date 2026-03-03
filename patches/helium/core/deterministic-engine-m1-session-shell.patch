@@ -1,0 +1,265 @@
+diff --git a/chrome/browser/BUILD.gn b/chrome/browser/BUILD.gn
+index 8ca6c39..a6e7c9b 100644
+--- a/chrome/browser/BUILD.gn
++++ b/chrome/browser/BUILD.gn
+@@ -3,6 +3,8 @@ static_library("browser") {
+     "channel_selection.cc",
+     "channel_selection.h",
+     "child_process_host_flags.h",
++    "helium/deterministic/deterministic_session_service.cc",
++    "helium/deterministic/deterministic_session_service.h",
+     "helium/deterministic/virtual_time_controller.cc",
+     "helium/deterministic/virtual_time_controller.h",
+     "chrome_browser_field_trials.cc",
+diff --git a/chrome/browser/helium/deterministic/deterministic_session_service.cc b/chrome/browser/helium/deterministic/deterministic_session_service.cc
+new file mode 100644
+index 0000000..c23b766
+--- /dev/null
++++ b/chrome/browser/helium/deterministic/deterministic_session_service.cc
+@@ -0,0 +1,101 @@
++// Copyright 2026 The Helium Authors
++// You can use, redistribute, and/or modify this source code under
++// the terms of the GPL-3.0 license that can be found in the LICENSE file.
++
++#include "chrome/browser/helium/deterministic/deterministic_session_service.h"
++
++#include <utility>
++
++namespace helium::deterministic {
++
++bool DeterministicSessionService::CreateSession(std::string session_id,
++                                                const SessionConfig& config) {
++  if (session_id.empty() || has_session_) {
++    return false;
++  }
++
++  if (!controller_.Configure(config)) {
++    return false;
++  }
++
++  has_session_ = true;
++  session_id_ = std::move(session_id);
++  return true;
++}
++
++bool DeterministicSessionService::Configure(const SessionConfig& config) {
++  if (!has_session_) {
++    return false;
++  }
++  return controller_.Configure(config);
++}
++
++bool DeterministicSessionService::StartRunning() {
++  return has_session_ && controller_.StartRunning();
++}
++
++bool DeterministicSessionService::StartStepping() {
++  return has_session_ && controller_.StartStepping();
++}
++
++bool DeterministicSessionService::Pause() {
++  return has_session_ && controller_.Pause();
++}
++
++bool DeterministicSessionService::Resume() {
++  return has_session_ && controller_.StartRunning();
++}
++
++std::optional<StepTicket> DeterministicSessionService::BeginStep() {
++  if (!has_session_) {
++    return std::nullopt;
++  }
++  return controller_.BeginStep();
++}
++
++bool DeterministicSessionService::CommitStep(uint64_t step_id) {
++  return has_session_ && controller_.CommitStep(step_id);
++}
++
++bool DeterministicSessionService::FailStep(FaultClass fault,
++                                           std::string detail) {
++  return has_session_ && controller_.Fail(fault, std::move(detail));
++}
++
++bool DeterministicSessionService::Recover() {
++  return has_session_ && controller_.Recover();
++}
++
++bool DeterministicSessionService::Stop() {
++  if (!has_session_) {
++    return false;
++  }
++
++  has_session_ = false;
++  session_id_.reset();
++  controller_ = VirtualTimeController();
++  return true;
++}
++
++EngineState DeterministicSessionService::state() const {
++  if (!has_session_) {
++    return EngineState::kIdle;
++  }
++  return controller_.state();
++}
++
++uint64_t DeterministicSessionService::last_committed_step_id() const {
++  if (!has_session_) {
++    return 0;
++  }
++  return controller_.last_committed_step_id();
++}
++
++base::TimeDelta DeterministicSessionService::virtual_time() const {
++  if (!has_session_) {
++    return base::Microseconds(0);
++  }
++  return controller_.virtual_time();
++}
++
++}  // namespace helium::deterministic
+diff --git a/chrome/browser/helium/deterministic/deterministic_session_service.h b/chrome/browser/helium/deterministic/deterministic_session_service.h
+new file mode 100644
+index 0000000..e6a65a8
+--- /dev/null
++++ b/chrome/browser/helium/deterministic/deterministic_session_service.h
+@@ -0,0 +1,57 @@
++// Copyright 2026 The Helium Authors
++// You can use, redistribute, and/or modify this source code under
++// the terms of the GPL-3.0 license that can be found in the LICENSE file.
++
++#ifndef CHROME_BROWSER_HELIUM_DETERMINISTIC_DETERMINISTIC_SESSION_SERVICE_H_
++#define CHROME_BROWSER_HELIUM_DETERMINISTIC_DETERMINISTIC_SESSION_SERVICE_H_
++
++#include <stdint.h>
++
++#include <optional>
++#include <string>
++
++#include "base/time/time.h"
++#include "chrome/browser/helium/deterministic/virtual_time_controller.h"
++
++namespace helium::deterministic {
++
++class DeterministicSessionService {
++ public:
++  DeterministicSessionService() = default;
++  ~DeterministicSessionService() = default;
++
++  DeterministicSessionService(const DeterministicSessionService&) = delete;
++  DeterministicSessionService& operator=(const DeterministicSessionService&) =
++      delete;
++
++  bool CreateSession(std::string session_id, const SessionConfig& config);
++  bool Configure(const SessionConfig& config);
++
++  bool StartRunning();
++  bool StartStepping();
++  bool Pause();
++  bool Resume();
++
++  std::optional<StepTicket> BeginStep();
++  bool CommitStep(uint64_t step_id);
++  bool FailStep(FaultClass fault, std::string detail);
++  bool Recover();
++
++  bool Stop();
++
++  bool HasSession() const { return has_session_; }
++  const std::optional<std::string>& session_id() const { return session_id_; }
++
++  EngineState state() const;
++  uint64_t last_committed_step_id() const;
++  base::TimeDelta virtual_time() const;
++
++ private:
++  bool has_session_ = false;
++  std::optional<std::string> session_id_;
++  VirtualTimeController controller_;
++};
++
++}  // namespace helium::deterministic
++
++#endif  // CHROME_BROWSER_HELIUM_DETERMINISTIC_DETERMINISTIC_SESSION_SERVICE_H_
+diff --git a/chrome/browser/helium/deterministic/deterministic_session_service_unittest.cc b/chrome/browser/helium/deterministic/deterministic_session_service_unittest.cc
+new file mode 100644
+index 0000000..6f5e5d2
+--- /dev/null
++++ b/chrome/browser/helium/deterministic/deterministic_session_service_unittest.cc
+@@ -0,0 +1,64 @@
++// Copyright 2026 The Helium Authors
++// You can use, redistribute, and/or modify this source code under
++// the terms of the GPL-3.0 license that can be found in the LICENSE file.
++
++#include "chrome/browser/helium/deterministic/deterministic_session_service.h"
++
++#include "testing/gtest/include/gtest/gtest.h"
++
++namespace helium::deterministic {
++
++TEST(DeterministicSessionServiceTest, RequiresSessionForControlCalls) {
++  DeterministicSessionService service;
++
++  EXPECT_FALSE(service.StartRunning());
++  EXPECT_FALSE(service.StartStepping());
++  EXPECT_FALSE(service.Pause());
++  EXPECT_FALSE(service.Resume());
++  EXPECT_FALSE(service.Stop());
++  EXPECT_FALSE(service.BeginStep().has_value());
++}
++
++TEST(DeterministicSessionServiceTest, CreatesSingleSession) {
++  DeterministicSessionService service;
++
++  EXPECT_TRUE(service.CreateSession("session-1", SessionConfig()));
++  EXPECT_TRUE(service.HasSession());
++  ASSERT_TRUE(service.session_id().has_value());
++  EXPECT_EQ(service.session_id().value(), "session-1");
++
++  EXPECT_FALSE(service.CreateSession("session-2", SessionConfig()));
++}
++
++TEST(DeterministicSessionServiceTest, SteppingFlowCommitsVirtualTime) {
++  DeterministicSessionService service;
++  ASSERT_TRUE(service.CreateSession("s", SessionConfig()));
++  ASSERT_TRUE(service.StartStepping());
++
++  auto ticket = service.BeginStep();
++  ASSERT_TRUE(ticket.has_value());
++  EXPECT_EQ(ticket->step_id, 1u);
++
++  EXPECT_TRUE(service.CommitStep(ticket->step_id));
++  EXPECT_EQ(service.last_committed_step_id(), 1u);
++  EXPECT_EQ(service.virtual_time().InMicroseconds(), 16666);
++}
++
++TEST(DeterministicSessionServiceTest, FaultRecoveryAndStop) {
++  DeterministicSessionService service;
++  ASSERT_TRUE(service.CreateSession("s", SessionConfig()));
++  ASSERT_TRUE(service.StartRunning());
++
++  EXPECT_TRUE(service.FailStep(FaultClass::kInvariantViolation, "test fault"));
++  EXPECT_EQ(service.state(), EngineState::kFaulted);
++
++  EXPECT_TRUE(service.Recover());
++  EXPECT_EQ(service.state(), EngineState::kPaused);
++
++  EXPECT_TRUE(service.Stop());
++  EXPECT_FALSE(service.HasSession());
++  EXPECT_FALSE(service.session_id().has_value());
++  EXPECT_EQ(service.state(), EngineState::kIdle);
++}
++
++}  // namespace helium::deterministic
+diff --git a/chrome/test/BUILD.gn b/chrome/test/BUILD.gn
+index dd61ce8..689b40e 100644
+--- a/chrome/test/BUILD.gn
++++ b/chrome/test/BUILD.gn
+@@ -1,6 +1,7 @@
+ test("unit_tests") {
+   sources = [
+     "../browser/history_clusters/history_clusters_tab_helper_unittest.cc",
++    "../browser/helium/deterministic/deterministic_session_service_unittest.cc",
+     "../browser/helium/deterministic/virtual_time_controller_unittest.cc",
+     "../browser/idle/idle_detection_permission_context_unittest.cc",
+   ]

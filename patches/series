@@ -198,6 +198,7 @@ helium/core/deterministic-engine-m1-tests.patch
 helium/core/deterministic-engine-m1-tests-coverage.patch
 helium/core/deterministic-engine-m1-build-gn.patch
 helium/core/deterministic-engine-m1-state-hardening.patch
+helium/core/deterministic-engine-m1-session-shell.patch
 helium/core/add-low-power-framerate-flag.patch
 helium/core/add-update-channel-flag.patch
 helium/core/add-updater-preference.patch
