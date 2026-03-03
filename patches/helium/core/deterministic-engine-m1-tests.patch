@@ -1,0 +1,93 @@
+--- /dev/null
++++ b/chrome/browser/helium/deterministic/virtual_time_controller_unittest.cc
+@@ -0,0 +1,90 @@
++// Copyright 2026 The Helium Authors
++// You can use, redistribute, and/or modify this source code under
++// the terms of the GPL-3.0 license that can be found in the LICENSE file.
++
++#include "chrome/browser/helium/deterministic/virtual_time_controller.h"
++
++#include "testing/gtest/include/gtest/gtest.h"
++
++namespace helium::deterministic {
++
++TEST(VirtualTimeControllerTest, RejectsInvalidConfig) {
++  VirtualTimeController controller;
++
++  SessionConfig invalid_fps;
++  invalid_fps.fps = 24;
++  EXPECT_FALSE(controller.Configure(invalid_fps));
++
++  SessionConfig invalid_budget;
++  invalid_budget.network_budget_per_step_ms = -1;
++  EXPECT_FALSE(controller.Configure(invalid_budget));
++}
++
++TEST(VirtualTimeControllerTest, StepCommitAdvancesVirtualTime) {
++  VirtualTimeController controller;
++
++  SessionConfig config;
++  config.fps = 60;
++  ASSERT_TRUE(controller.Configure(config));
++  ASSERT_TRUE(controller.StartStepping());
++
++  auto ticket = controller.BeginStep();
++  ASSERT_TRUE(ticket.has_value());
++  EXPECT_EQ(ticket->step_id, 1u);
++  EXPECT_EQ(ticket->target_virtual_time.InMicroseconds(), 16666);
++
++  EXPECT_TRUE(controller.CommitStep(ticket->step_id));
++  EXPECT_EQ(controller.last_committed_step_id(), 1u);
++  EXPECT_EQ(controller.virtual_time().InMicroseconds(), 16666);
++}
++
++TEST(VirtualTimeControllerTest, RejectsCommitForWrongStepId) {
++  VirtualTimeController controller;
++
++  ASSERT_TRUE(controller.Configure(SessionConfig()));
++  ASSERT_TRUE(controller.StartStepping());
++
++  auto ticket = controller.BeginStep();
++  ASSERT_TRUE(ticket.has_value());
++
++  EXPECT_FALSE(controller.CommitStep(ticket->step_id + 1));
++  EXPECT_EQ(controller.last_committed_step_id(), 0u);
++  EXPECT_EQ(controller.virtual_time().InMicroseconds(), 0);
++}
++
++TEST(VirtualTimeControllerTest, RequiresRecoverAfterFault) {
++  VirtualTimeController controller;
++
++  ASSERT_TRUE(controller.Configure(SessionConfig()));
++  ASSERT_TRUE(controller.StartRunning());
++
++  EXPECT_TRUE(controller.Fail("forced fault for test"));
++  EXPECT_EQ(controller.state(), EngineState::kFaulted);
++
++  EXPECT_FALSE(controller.StartStepping());
++  EXPECT_FALSE(controller.BeginStep().has_value());
++
++  EXPECT_TRUE(controller.Recover());
++  EXPECT_EQ(controller.state(), EngineState::kPaused);
++}
++
++TEST(VirtualTimeControllerTest, PreventsConcurrentSteps) {
++  VirtualTimeController controller;
++
++  ASSERT_TRUE(controller.Configure(SessionConfig()));
++  ASSERT_TRUE(controller.StartStepping());
++
++  auto first = controller.BeginStep();
++  ASSERT_TRUE(first.has_value());
++
++  auto second = controller.BeginStep();
++  EXPECT_FALSE(second.has_value());
++
++  EXPECT_TRUE(controller.CommitStep(first->step_id));
++
++  auto third = controller.BeginStep();
++  ASSERT_TRUE(third.has_value());
++  EXPECT_EQ(third->step_id, 2u);
++}
++
++}  // namespace helium::deterministic
