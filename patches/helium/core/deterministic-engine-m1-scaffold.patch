@@ -101,3 +101,119 @@
 +}  // namespace helium::deterministic
 +
 +#endif  // CHROME_BROWSER_HELIUM_DETERMINISTIC_VIRTUAL_TIME_CONTROLLER_H_
+
+--- /dev/null
++++ b/chrome/browser/helium/deterministic/virtual_time_controller.cc
+@@ -0,0 +1,112 @@
++// Copyright 2026 The Helium Authors
++// You can use, redistribute, and/or modify this source code under
++// the terms of the GPL-3.0 license that can be found in the LICENSE file.
++
++#include "chrome/browser/helium/deterministic/virtual_time_controller.h"
++
++namespace helium::deterministic {
++
++namespace {
++
++constexpr int kSupportedFps30 = 30;
++constexpr int kSupportedFps60 = 60;
++
++}  // namespace
++
++bool VirtualTimeController::Configure(const SessionConfig& config) {
++  if (config.fps != kSupportedFps30 && config.fps != kSupportedFps60) {
++    return false;
++  }
++
++  if (config.network_budget_per_step_ms < 0) {
++    return false;
++  }
++
++  state_ = EngineState::kConfigured;
++  config_ = config;
++  last_committed_step_id_ = 0;
++  active_step_id_ = 0;
++  committed_virtual_time_ = base::Microseconds(0);
++  return true;
++}
++
++bool VirtualTimeController::StartRunning() {
++  if (state_ != EngineState::kConfigured && state_ != EngineState::kPaused) {
++    return false;
++  }
++
++  state_ = EngineState::kRunning;
++  return true;
++}
++
++bool VirtualTimeController::StartStepping() {
++  if (state_ != EngineState::kConfigured && state_ != EngineState::kPaused) {
++    return false;
++  }
++
++  state_ = EngineState::kStepping;
++  return true;
++}
++
++bool VirtualTimeController::Pause() {
++  if (state_ != EngineState::kRunning && state_ != EngineState::kStepping) {
++    return false;
++  }
++
++  state_ = EngineState::kPaused;
++  return true;
++}
++
++std::optional<StepTicket> VirtualTimeController::BeginStep() {
++  if ((state_ != EngineState::kRunning && state_ != EngineState::kStepping) ||
++      active_step_id_ != 0) {
++    return std::nullopt;
++  }
++
++  active_step_id_ = last_committed_step_id_ + 1;
++  return StepTicket{
++      .step_id = active_step_id_,
++      .target_virtual_time = committed_virtual_time_ + FixedStepDuration(),
++  };
++}
++
++bool VirtualTimeController::CommitStep(uint64_t step_id) {
++  if (active_step_id_ == 0 || active_step_id_ != step_id) {
++    return false;
++  }
++
++  last_committed_step_id_ = active_step_id_;
++  committed_virtual_time_ += FixedStepDuration();
++  active_step_id_ = 0;
++  return true;
++}
++
++bool VirtualTimeController::Fail(std::string detail) {
++  if (state_ == EngineState::kIdle || state_ == EngineState::kFaulted) {
++    return false;
++  }
++
++  state_ = EngineState::kFaulted;
++  active_step_id_ = 0;
++  static_cast<void>(detail);
++  return true;
++}
++
++bool VirtualTimeController::Recover() {
++  if (state_ != EngineState::kFaulted) {
++    return false;
++  }
++
++  state_ = EngineState::kPaused;
++  active_step_id_ = 0;
++  return true;
++}
++
++base::TimeDelta VirtualTimeController::FixedStepDuration() const {
++  if (config_.fps == kSupportedFps30) {
++    return base::Microseconds(33333);
++  }
++  return base::Microseconds(16666);
++}
++
++}  // namespace helium::deterministic
