@@ -225,6 +225,7 @@ helium/core/deterministic-engine-m2-control-configure.patch
 helium/core/deterministic-engine-m2-control-fault-results.patch
 helium/core/deterministic-engine-m2-control-configure-tests.patch
 helium/core/deterministic-engine-m2-control-error-codes.patch
+helium/core/deterministic-engine-m2-control-recover.patch
 helium/core/deterministic-engine-m2-control-build-gn.patch
 helium/core/add-low-power-framerate-flag.patch
 helium/core/add-update-channel-flag.patch

@@ -1,0 +1,81 @@
+diff --git a/chrome/browser/helium/deterministic/deterministic_control_service.cc b/chrome/browser/helium/deterministic/deterministic_control_service.cc
+index acdb545..5bd3dbd 100644
+--- a/chrome/browser/helium/deterministic/deterministic_control_service.cc
++++ b/chrome/browser/helium/deterministic/deterministic_control_service.cc
+@@ -104,6 +104,22 @@ PauseResult DeterministicControlService::Pause() {
+   return result;
+ }
+ 
++
++RecoverResult DeterministicControlService::Recover() {
++  RecoverResult result;
++  result.ok = session_.Recover();
++  if (!result.ok) {
++    result.error = "unable to recover";
++    result.error_code = ControlErrorCode::kInvalidState;
++  }
++  result.snapshot = session_.GetSnapshot();
++  if (auto evt = session_.last_fault_event()) {
++    result.last_fault_class = evt->fault_class;
++    result.last_fault_phase = evt->fault_phase;
++  }
++  return result;
++}
++
+ StepResult DeterministicControlService::Step(const StepRequest& request) {
+   StepResult result;
+ 
+diff --git a/chrome/browser/helium/deterministic/deterministic_control_service.h b/chrome/browser/helium/deterministic/deterministic_control_service.h
+index ad446c5..255fc18 100644
+--- a/chrome/browser/helium/deterministic/deterministic_control_service.h
++++ b/chrome/browser/helium/deterministic/deterministic_control_service.h
+@@ -26,6 +26,7 @@ class DeterministicControlService {
+   StartResult StartStepping();
+   StartResult StartRunning();
+   PauseResult Pause();
++  RecoverResult Recover();
+   StepResult Step(const StepRequest& request);
+   StopResult Stop();
+ 
+diff --git a/chrome/browser/helium/deterministic/deterministic_control_service_unittest.cc b/chrome/browser/helium/deterministic/deterministic_control_service_unittest.cc
+index 7943db3..8f5f83f 100644
+--- a/chrome/browser/helium/deterministic/deterministic_control_service_unittest.cc
++++ b/chrome/browser/helium/deterministic/deterministic_control_service_unittest.cc
+@@ -85,6 +85,17 @@ TEST(DeterministicControlServiceTest, ZeroFrameStepIsRejected) {
+   EXPECT_EQ(step.error_code.value(), ControlErrorCode::kInvalidArgument);
+ }
+ 
++
++TEST(DeterministicControlServiceTest, RecoverFailsWithoutFault) {
++  DeterministicControlService control;
++  ASSERT_TRUE(control.CreateSession(CreateSessionRequest{.session_id = "r"}).ok);
++
++  auto recover = control.Recover();
++  EXPECT_FALSE(recover.ok);
++  ASSERT_TRUE(recover.error_code.has_value());
++  EXPECT_EQ(recover.error_code.value(), ControlErrorCode::kInvalidState);
++}
++
+ TEST(DeterministicControlServiceTest, StateIncludesRecentEvents) {
+   DeterministicControlService control;
+   ASSERT_TRUE(control.CreateSession(CreateSessionRequest{.session_id = "s"}).ok);
+diff --git a/chrome/browser/helium/deterministic/deterministic_control_types.h b/chrome/browser/helium/deterministic/deterministic_control_types.h
+index 9cb0db4..6e6fa48 100644
+--- a/chrome/browser/helium/deterministic/deterministic_control_types.h
++++ b/chrome/browser/helium/deterministic/deterministic_control_types.h
+@@ -61,6 +61,15 @@ struct PauseResult {
+   std::optional<StepPhase> last_fault_phase;
+ };
+ 
++struct RecoverResult {
++  bool ok = false;
++  std::string error;
++  std::optional<ControlErrorCode> error_code;
++  DeterministicSessionSnapshot snapshot;
++  std::optional<FaultClass> last_fault_class;
++  std::optional<StepPhase> last_fault_phase;
++};
++
+ struct StopResult {
+   bool ok = false;
+   std::string error;
