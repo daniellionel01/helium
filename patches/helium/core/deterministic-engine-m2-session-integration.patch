@@ -1,0 +1,232 @@
+diff --git a/chrome/browser/helium/deterministic/deterministic_session_service.cc b/chrome/browser/helium/deterministic/deterministic_session_service.cc
+index c23b766..8b0013d 100644
+--- a/chrome/browser/helium/deterministic/deterministic_session_service.cc
++++ b/chrome/browser/helium/deterministic/deterministic_session_service.cc
+@@ -20,6 +20,8 @@ bool DeterministicSessionService::CreateSession(std::string session_id,
+ 
+   has_session_ = true;
+   session_id_ = std::move(session_id);
++  active_step_transaction_.reset();
++  last_step_metrics_.reset();
+   return true;
+ }
+ 
+@@ -50,16 +52,100 @@ std::optional<StepTicket> DeterministicSessionService::BeginStep() {
+   if (!has_session_) {
+     return std::nullopt;
+   }
+-  return controller_.BeginStep();
++
++  auto step = controller_.BeginStep();
++  if (!step.has_value()) {
++    return std::nullopt;
++  }
++
++  active_step_transaction_ = StepTransaction{
++      .step_id = step->step_id,
++      .target_virtual_time = step->target_virtual_time,
++  };
++  return step;
++}
++
++bool DeterministicSessionService::MarkStepPhaseDone(StepPhase phase,
++                                                    base::TimeDelta elapsed) {
++  if (!has_session_ || !active_step_transaction_.has_value()) {
++    return false;
++  }
++
++  StepTransaction& tx = active_step_transaction_.value();
++  if (IsPhaseComplete(tx, phase)) {
++    return false;
++  }
++
++  switch (phase) {
++    case StepPhase::kTick:
++      tx.tick_done = true;
++      tx.timings.tick = elapsed;
++      break;
++    case StepPhase::kRender:
++      tx.render_done = true;
++      tx.timings.render = elapsed;
++      break;
++    case StepPhase::kPresent:
++      tx.present_done = true;
++      tx.timings.present = elapsed;
++      break;
++    case StepPhase::kCapture:
++      tx.capture_done = true;
++      tx.timings.capture = elapsed;
++      break;
++    case StepPhase::kEncode:
++      tx.encode_done = true;
++      tx.timings.encode = elapsed;
++      break;
++    case StepPhase::kCommit:
++      tx.commit_done = true;
++      tx.timings.commit = elapsed;
++      break;
++  }
++
++  return true;
+ }
+ 
+ bool DeterministicSessionService::CommitStep(uint64_t step_id) {
+-  return has_session_ && controller_.CommitStep(step_id);
++  if (!has_session_ || !active_step_transaction_.has_value()) {
++    return false;
++  }
++
++  StepTransaction& tx = active_step_transaction_.value();
++  if (tx.step_id != step_id) {
++    return false;
++  }
++
++  if (!tx.tick_done || !tx.render_done || !tx.present_done ||
++      !tx.capture_done || !tx.encode_done) {
++    return false;
++  }
++
++  tx.commit_done = true;
++  if (!controller_.CommitStep(step_id)) {
++    tx.commit_done = false;
++    return false;
++  }
++
++  last_step_metrics_ = BuildStepMetrics(tx, /*had_fault=*/false);
++  active_step_transaction_.reset();
++  return true;
+ }
+ 
+ bool DeterministicSessionService::FailStep(FaultClass fault,
+                                            std::string detail) {
+-  return has_session_ && controller_.Fail(fault, std::move(detail));
++  if (!has_session_) {
++    return false;
++  }
++
++  if (active_step_transaction_.has_value()) {
++    active_step_transaction_.value().commit_done = true;
++    last_step_metrics_ =
++        BuildStepMetrics(active_step_transaction_.value(), /*had_fault=*/true);
++    active_step_transaction_.reset();
++  }
++
++  return controller_.Fail(fault, std::move(detail));
+ }
+ 
+ bool DeterministicSessionService::Recover() {
+diff --git a/chrome/browser/helium/deterministic/deterministic_session_service.h b/chrome/browser/helium/deterministic/deterministic_session_service.h
+index e6a65a8..84fbbfd 100644
+--- a/chrome/browser/helium/deterministic/deterministic_session_service.h
++++ b/chrome/browser/helium/deterministic/deterministic_session_service.h
+@@ -11,6 +11,7 @@
+ #include <string>
+ 
+ #include "base/time/time.h"
++#include "chrome/browser/helium/deterministic/step_transaction_types.h"
+ #include "chrome/browser/helium/deterministic/virtual_time_controller.h"
+ 
+ namespace helium::deterministic {
+@@ -33,6 +34,7 @@ class DeterministicSessionService {
+   bool Resume();
+ 
+   std::optional<StepTicket> BeginStep();
++  bool MarkStepPhaseDone(StepPhase phase, base::TimeDelta elapsed);
+   bool CommitStep(uint64_t step_id);
+   bool FailStep(FaultClass fault, std::string detail);
+   bool Recover();
+@@ -45,11 +47,16 @@ class DeterministicSessionService {
+   EngineState state() const;
+   uint64_t last_committed_step_id() const;
+   base::TimeDelta virtual_time() const;
++  std::optional<StepMetrics> last_step_metrics() const {
++    return last_step_metrics_;
++  }
+ 
+  private:
+   bool has_session_ = false;
+   std::optional<std::string> session_id_;
+   VirtualTimeController controller_;
++  std::optional<StepTransaction> active_step_transaction_;
++  std::optional<StepMetrics> last_step_metrics_;
+ };
+ 
+ }  // namespace helium::deterministic
+diff --git a/chrome/browser/helium/deterministic/deterministic_session_service_unittest.cc b/chrome/browser/helium/deterministic/deterministic_session_service_unittest.cc
+index 6f5e5d2..4ef398e 100644
+--- a/chrome/browser/helium/deterministic/deterministic_session_service_unittest.cc
++++ b/chrome/browser/helium/deterministic/deterministic_session_service_unittest.cc
+@@ -17,6 +17,9 @@ TEST(DeterministicSessionServiceTest, RequiresSessionForControlCalls) {
+   EXPECT_FALSE(service.Resume());
+   EXPECT_FALSE(service.Stop());
+   EXPECT_FALSE(service.BeginStep().has_value());
++  EXPECT_FALSE(service.MarkStepPhaseDone(StepPhase::kTick,
++                                         base::Milliseconds(1)));
++  EXPECT_FALSE(service.last_step_metrics().has_value());
+ }
+ 
+ TEST(DeterministicSessionServiceTest, CreatesSingleSession) {
+@@ -39,9 +42,44 @@ TEST(DeterministicSessionServiceTest, SteppingFlowCommitsVirtualTime) {
+   ASSERT_TRUE(ticket.has_value());
+   EXPECT_EQ(ticket->step_id, 1u);
+ 
++  EXPECT_TRUE(service.MarkStepPhaseDone(StepPhase::kTick,
++                                      base::Milliseconds(1)));
++  EXPECT_TRUE(service.MarkStepPhaseDone(StepPhase::kRender,
++                                      base::Milliseconds(2)));
++  EXPECT_TRUE(service.MarkStepPhaseDone(StepPhase::kPresent,
++                                      base::Milliseconds(3)));
++  EXPECT_TRUE(service.MarkStepPhaseDone(StepPhase::kCapture,
++                                      base::Milliseconds(4)));
++  EXPECT_TRUE(service.MarkStepPhaseDone(StepPhase::kEncode,
++                                      base::Milliseconds(5)));
++
+   EXPECT_TRUE(service.CommitStep(ticket->step_id));
+   EXPECT_EQ(service.last_committed_step_id(), 1u);
+   EXPECT_EQ(service.virtual_time().InMicroseconds(), 16666);
++
++  auto metrics = service.last_step_metrics();
++  ASSERT_TRUE(metrics.has_value());
++  EXPECT_EQ(metrics->step_id, 1u);
++  EXPECT_FALSE(metrics->had_fault);
++  EXPECT_EQ(metrics->timings.tick.InMilliseconds(), 1);
++  EXPECT_EQ(metrics->timings.encode.InMilliseconds(), 5);
++}
++
++
++TEST(DeterministicSessionServiceTest, CommitRequiresAllPhases) {
++  DeterministicSessionService service;
++  ASSERT_TRUE(service.CreateSession("s", SessionConfig()));
++  ASSERT_TRUE(service.StartStepping());
++
++  auto ticket = service.BeginStep();
++  ASSERT_TRUE(ticket.has_value());
++
++  EXPECT_TRUE(service.MarkStepPhaseDone(StepPhase::kTick,
++                                        base::Milliseconds(1)));
++  EXPECT_TRUE(service.MarkStepPhaseDone(StepPhase::kRender,
++                                        base::Milliseconds(1)));
++
++  EXPECT_FALSE(service.CommitStep(ticket->step_id));
+ }
+ 
+ TEST(DeterministicSessionServiceTest, FaultRecoveryAndStop) {
+@@ -49,9 +87,18 @@ TEST(DeterministicSessionServiceTest, FaultRecoveryAndStop) {
+   ASSERT_TRUE(service.CreateSession("s", SessionConfig()));
+   ASSERT_TRUE(service.StartRunning());
+ 
++  auto ticket = service.BeginStep();
++  ASSERT_TRUE(ticket.has_value());
++  EXPECT_TRUE(service.MarkStepPhaseDone(StepPhase::kTick,
++                                        base::Milliseconds(1)));
++
+   EXPECT_TRUE(service.FailStep(FaultClass::kInvariantViolation, "test fault"));
+   EXPECT_EQ(service.state(), EngineState::kFaulted);
+ 
++  auto metrics = service.last_step_metrics();
++  ASSERT_TRUE(metrics.has_value());
++  EXPECT_TRUE(metrics->had_fault);
++
+   EXPECT_TRUE(service.Recover());
+   EXPECT_EQ(service.state(), EngineState::kPaused);
+ 

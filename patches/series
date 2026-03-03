@@ -201,6 +201,7 @@ helium/core/deterministic-engine-m1-state-hardening.patch
 helium/core/deterministic-engine-m1-session-shell.patch
 helium/core/deterministic-engine-m2-transaction-types.patch
 helium/core/deterministic-engine-m2-build-gn.patch
+helium/core/deterministic-engine-m2-session-integration.patch
 helium/core/add-low-power-framerate-flag.patch
 helium/core/add-update-channel-flag.patch
 helium/core/add-updater-preference.patch
