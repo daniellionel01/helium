@@ -1,0 +1,20 @@
+--- a/chrome/browser/helium/deterministic/virtual_time_controller_unittest.cc
++++ b/chrome/browser/helium/deterministic/virtual_time_controller_unittest.cc
+@@ -88,4 +88,16 @@ TEST(VirtualTimeControllerTest, PreventsConcurrentSteps) {
+   ASSERT_TRUE(third.has_value());
+   EXPECT_EQ(third->step_id, 2u);
+ }
++
++TEST(VirtualTimeControllerTest, PauseFailsOutsideSteppableStates) {
++  VirtualTimeController controller;
++
++  EXPECT_FALSE(controller.Pause());
++
++  ASSERT_TRUE(controller.Configure(SessionConfig()));
++  EXPECT_FALSE(controller.Pause());
++
++  ASSERT_TRUE(controller.StartStepping());
++  EXPECT_TRUE(controller.Pause());
++}
+ 
+ }  // namespace helium::deterministic
