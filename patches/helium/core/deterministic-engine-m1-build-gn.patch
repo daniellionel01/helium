@@ -1,0 +1,21 @@
+--- a/chrome/browser/BUILD.gn
++++ b/chrome/browser/BUILD.gn
+@@ -265,6 +265,8 @@ static_library("browser") {
+     "channel_selection.cc",
+     "channel_selection.h",
+     "child_process_host_flags.h",
++    "helium/deterministic/virtual_time_controller.cc",
++    "helium/deterministic/virtual_time_controller.h",
+     "chrome_browser_field_trials.cc",
+     "chrome_browser_field_trials.h",
+     "chrome_browser_interface_binders.cc",
+--- a/chrome/test/BUILD.gn
++++ b/chrome/test/BUILD.gn
+@@ -6523,6 +6523,7 @@ test("unit_tests") {
+     "../browser/geolocation/geolocation_permission_context_delegate_unittest.cc",
+     "../browser/history/history_tab_helper_unittest.cc",
+     "../browser/history_clusters/history_clusters_tab_helper_unittest.cc",
++    "../browser/helium/deterministic/virtual_time_controller_unittest.cc",
+     "../browser/idle/idle_detection_permission_context_unittest.cc",
+     "../browser/k_anonymity_service/k_anonymity_service_client_unittest.cc",
+     "../browser/k_anonymity_service/k_anonymity_service_storage_unittest.cc",
