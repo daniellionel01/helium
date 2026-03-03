@@ -1,0 +1,25 @@
+diff --git a/chrome/browser/BUILD.gn b/chrome/browser/BUILD.gn
+index e890fca..f08bd2e 100644
+--- a/chrome/browser/BUILD.gn
++++ b/chrome/browser/BUILD.gn
+@@ -5,6 +5,8 @@ static_library("browser") {
+     "child_process_host_flags.h",
+     "helium/deterministic/deterministic_session_service.cc",
+     "helium/deterministic/deterministic_session_service.h",
++    "helium/deterministic/step_transaction_orchestrator.cc",
++    "helium/deterministic/step_transaction_orchestrator.h",
+     "helium/deterministic/step_transaction_types.h",
+     "helium/deterministic/virtual_time_controller.cc",
+     "helium/deterministic/virtual_time_controller.h",
+diff --git a/chrome/test/BUILD.gn b/chrome/test/BUILD.gn
+index 6caa201..383aeb4 100644
+--- a/chrome/test/BUILD.gn
++++ b/chrome/test/BUILD.gn
+@@ -2,6 +2,7 @@ test("unit_tests") {
+   sources = [
+     "../browser/history_clusters/history_clusters_tab_helper_unittest.cc",
+     "../browser/helium/deterministic/deterministic_session_service_unittest.cc",
++    "../browser/helium/deterministic/step_transaction_orchestrator_unittest.cc",
+     "../browser/helium/deterministic/step_transaction_types_unittest.cc",
+     "../browser/helium/deterministic/virtual_time_controller_unittest.cc",
+     "../browser/idle/idle_detection_permission_context_unittest.cc",

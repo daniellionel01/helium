@@ -1,0 +1,251 @@
+diff --git a/chrome/browser/helium/deterministic/step_transaction_orchestrator.cc b/chrome/browser/helium/deterministic/step_transaction_orchestrator.cc
+new file mode 100644
+index 0000000..4e9a93d
+--- /dev/null
++++ b/chrome/browser/helium/deterministic/step_transaction_orchestrator.cc
+@@ -0,0 +1,120 @@
++// Copyright 2026 The Helium Authors
++// You can use, redistribute, and/or modify this source code under
++// the terms of the GPL-3.0 license that can be found in the LICENSE file.
++
++#include "chrome/browser/helium/deterministic/step_transaction_orchestrator.h"
++
++namespace helium::deterministic {
++
++bool StepTransactionOrchestrator::Begin(const StepTicket& ticket) {
++  if (active_.has_value()) {
++    return false;
++  }
++
++  active_ = StepTransaction{
++      .step_id = ticket.step_id,
++      .target_virtual_time = ticket.target_virtual_time,
++  };
++  return true;
++}
++
++bool StepTransactionOrchestrator::MarkPhaseDone(StepPhase phase,
++                                                base::TimeDelta elapsed) {
++  if (!active_.has_value()) {
++    return false;
++  }
++
++  StepTransaction& tx = active_.value();
++  if (IsPhaseComplete(tx, phase)) {
++    return false;
++  }
++
++  switch (phase) {
++    case StepPhase::kTick:
++      tx.tick_done = true;
++      tx.timings.tick = elapsed;
++      return true;
++    case StepPhase::kRender:
++      tx.render_done = true;
++      tx.timings.render = elapsed;
++      return true;
++    case StepPhase::kPresent:
++      tx.present_done = true;
++      tx.timings.present = elapsed;
++      return true;
++    case StepPhase::kCapture:
++      tx.capture_done = true;
++      tx.timings.capture = elapsed;
++      return true;
++    case StepPhase::kEncode:
++      tx.encode_done = true;
++      tx.timings.encode = elapsed;
++      return true;
++    case StepPhase::kCommit:
++      tx.commit_done = true;
++      tx.timings.commit = elapsed;
++      return true;
++  }
++
++  return false;
++}
++
++bool StepTransactionOrchestrator::CanCommit(uint64_t step_id) const {
++  if (!active_.has_value()) {
++    return false;
++  }
++
++  const StepTransaction& tx = active_.value();
++  return tx.step_id == step_id && tx.tick_done && tx.render_done &&
++         tx.present_done && tx.capture_done && tx.encode_done;
++}
++
++void StepTransactionOrchestrator::FinalizeCommitSuccess() {
++  if (!active_.has_value()) {
++    return;
++  }
++
++  StepTransaction tx = active_.value();
++  tx.commit_done = true;
++  if (auto metrics = BuildStepMetrics(tx, /*had_fault=*/false)) {
++    last_metrics_ = metrics;
++  }
++  active_.reset();
++}
++
++bool StepTransactionOrchestrator::FinalizeCommitFailure() {
++  if (!active_.has_value()) {
++    return false;
++  }
++
++  active_.value().commit_done = false;
++  return true;
++}
++
++bool StepTransactionOrchestrator::FailActiveTransaction() {
++  if (!active_.has_value()) {
++    return false;
++  }
++
++  StepTransaction tx = active_.value();
++  tx.commit_done = true;
++  if (auto metrics = BuildStepMetrics(tx, /*had_fault=*/true)) {
++    last_metrics_ = metrics;
++  }
++  active_.reset();
++  return true;
++}
++
++std::optional<uint64_t> StepTransactionOrchestrator::active_step_id() const {
++  if (!active_.has_value()) {
++    return std::nullopt;
++  }
++  return active_.value().step_id;
++}
++
++void StepTransactionOrchestrator::Reset() {
++  active_.reset();
++  last_metrics_.reset();
++}
++
++}  // namespace helium::deterministic
+diff --git a/chrome/browser/helium/deterministic/step_transaction_orchestrator.h b/chrome/browser/helium/deterministic/step_transaction_orchestrator.h
+new file mode 100644
+index 0000000..9391ad1
+--- /dev/null
++++ b/chrome/browser/helium/deterministic/step_transaction_orchestrator.h
+@@ -0,0 +1,46 @@
++// Copyright 2026 The Helium Authors
++// You can use, redistribute, and/or modify this source code under
++// the terms of the GPL-3.0 license that can be found in the LICENSE file.
++
++#ifndef CHROME_BROWSER_HELIUM_DETERMINISTIC_STEP_TRANSACTION_ORCHESTRATOR_H_
++#define CHROME_BROWSER_HELIUM_DETERMINISTIC_STEP_TRANSACTION_ORCHESTRATOR_H_
++
++#include <optional>
++
++#include "base/time/time.h"
++#include "chrome/browser/helium/deterministic/step_transaction_types.h"
++#include "chrome/browser/helium/deterministic/virtual_time_controller.h"
++
++namespace helium::deterministic {
++
++class StepTransactionOrchestrator {
++ public:
++  StepTransactionOrchestrator() = default;
++  ~StepTransactionOrchestrator() = default;
++
++  StepTransactionOrchestrator(const StepTransactionOrchestrator&) = delete;
++  StepTransactionOrchestrator& operator=(const StepTransactionOrchestrator&) =
++      delete;
++
++  bool Begin(const StepTicket& ticket);
++  bool MarkPhaseDone(StepPhase phase, base::TimeDelta elapsed);
++
++  bool CanCommit(uint64_t step_id) const;
++  void FinalizeCommitSuccess();
++  bool FinalizeCommitFailure();
++  bool FailActiveTransaction();
++
++  bool has_active_transaction() const { return active_.has_value(); }
++  std::optional<uint64_t> active_step_id() const;
++  std::optional<StepMetrics> last_metrics() const { return last_metrics_; }
++
++  void Reset();
++
++ private:
++  std::optional<StepTransaction> active_;
++  std::optional<StepMetrics> last_metrics_;
++};
++
++}  // namespace helium::deterministic
++
++#endif  // CHROME_BROWSER_HELIUM_DETERMINISTIC_STEP_TRANSACTION_ORCHESTRATOR_H_
+diff --git a/chrome/browser/helium/deterministic/step_transaction_orchestrator_unittest.cc b/chrome/browser/helium/deterministic/step_transaction_orchestrator_unittest.cc
+new file mode 100644
+index 0000000..f86e41d
+--- /dev/null
++++ b/chrome/browser/helium/deterministic/step_transaction_orchestrator_unittest.cc
+@@ -0,0 +1,67 @@
++// Copyright 2026 The Helium Authors
++// You can use, redistribute, and/or modify this source code under
++// the terms of the GPL-3.0 license that can be found in the LICENSE file.
++
++#include "chrome/browser/helium/deterministic/step_transaction_orchestrator.h"
++
++#include "testing/gtest/include/gtest/gtest.h"
++
++namespace helium::deterministic {
++
++TEST(StepTransactionOrchestratorTest, BeginsAndTracksActiveStep) {
++  StepTransactionOrchestrator orchestrator;
++  StepTicket ticket{.step_id = 7, .target_virtual_time = base::Milliseconds(16)};
++
++  EXPECT_TRUE(orchestrator.Begin(ticket));
++  EXPECT_TRUE(orchestrator.has_active_transaction());
++  ASSERT_TRUE(orchestrator.active_step_id().has_value());
++  EXPECT_EQ(orchestrator.active_step_id().value(), 7u);
++
++  EXPECT_FALSE(orchestrator.Begin(ticket));
++}
++
++TEST(StepTransactionOrchestratorTest, CommitRequiresAllRequiredPhases) {
++  StepTransactionOrchestrator orchestrator;
++  StepTicket ticket{.step_id = 1, .target_virtual_time = base::Milliseconds(16)};
++  ASSERT_TRUE(orchestrator.Begin(ticket));
++
++  EXPECT_FALSE(orchestrator.CanCommit(1));
++  EXPECT_TRUE(orchestrator.MarkPhaseDone(StepPhase::kTick, base::Milliseconds(1)));
++  EXPECT_TRUE(orchestrator.MarkPhaseDone(StepPhase::kRender, base::Milliseconds(1)));
++  EXPECT_TRUE(orchestrator.MarkPhaseDone(StepPhase::kPresent, base::Milliseconds(1)));
++  EXPECT_TRUE(orchestrator.MarkPhaseDone(StepPhase::kCapture, base::Milliseconds(1)));
++  EXPECT_TRUE(orchestrator.MarkPhaseDone(StepPhase::kEncode, base::Milliseconds(1)));
++
++  EXPECT_TRUE(orchestrator.CanCommit(1));
++  EXPECT_FALSE(orchestrator.CanCommit(2));
++}
++
++TEST(StepTransactionOrchestratorTest, CommitAndFaultProduceMetrics) {
++  StepTransactionOrchestrator orchestrator;
++
++  StepTicket success{.step_id = 2, .target_virtual_time = base::Milliseconds(33)};
++  ASSERT_TRUE(orchestrator.Begin(success));
++  EXPECT_TRUE(orchestrator.MarkPhaseDone(StepPhase::kTick, base::Milliseconds(1)));
++  EXPECT_TRUE(orchestrator.MarkPhaseDone(StepPhase::kRender, base::Milliseconds(2)));
++  EXPECT_TRUE(orchestrator.MarkPhaseDone(StepPhase::kPresent, base::Milliseconds(3)));
++  EXPECT_TRUE(orchestrator.MarkPhaseDone(StepPhase::kCapture, base::Milliseconds(4)));
++  EXPECT_TRUE(orchestrator.MarkPhaseDone(StepPhase::kEncode, base::Milliseconds(5)));
++  orchestrator.FinalizeCommitSuccess();
++
++  auto success_metrics = orchestrator.last_metrics();
++  ASSERT_TRUE(success_metrics.has_value());
++  EXPECT_EQ(success_metrics->step_id, 2u);
++  EXPECT_FALSE(success_metrics->had_fault);
++
++  StepTicket faulted{.step_id = 3, .target_virtual_time = base::Milliseconds(50)};
++  ASSERT_TRUE(orchestrator.Begin(faulted));
++  EXPECT_TRUE(orchestrator.MarkPhaseDone(StepPhase::kTick, base::Milliseconds(1)));
++  EXPECT_TRUE(orchestrator.FailActiveTransaction());
++
++  auto fault_metrics = orchestrator.last_metrics();
++  ASSERT_TRUE(fault_metrics.has_value());
++  EXPECT_EQ(fault_metrics->step_id, 3u);
++  EXPECT_TRUE(fault_metrics->had_fault);
++}
++
++}  // namespace helium::deterministic
