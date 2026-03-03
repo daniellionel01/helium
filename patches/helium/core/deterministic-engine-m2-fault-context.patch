@@ -1,0 +1,165 @@
+diff --git a/chrome/browser/helium/deterministic/deterministic_session_service.cc b/chrome/browser/helium/deterministic/deterministic_session_service.cc
+index 5ec61cf..7424283 100644
+--- a/chrome/browser/helium/deterministic/deterministic_session_service.cc
++++ b/chrome/browser/helium/deterministic/deterministic_session_service.cc
+@@ -88,7 +88,7 @@ bool DeterministicSessionService::FailStep(FaultClass fault,
+     return false;
+   }
+ 
+-  orchestrator_.FailActiveTransaction();
++  orchestrator_.FailActiveTransaction(fault, StepPhase::kCommit);
+   return controller_.Fail(fault, std::move(detail));
+ }
+ 
+diff --git a/chrome/browser/helium/deterministic/deterministic_session_service_unittest.cc b/chrome/browser/helium/deterministic/deterministic_session_service_unittest.cc
+index 4ef398e..c78b65b 100644
+--- a/chrome/browser/helium/deterministic/deterministic_session_service_unittest.cc
++++ b/chrome/browser/helium/deterministic/deterministic_session_service_unittest.cc
+@@ -98,6 +98,10 @@ TEST(DeterministicSessionServiceTest, FaultRecoveryAndStop) {
+   auto metrics = service.last_step_metrics();
+   ASSERT_TRUE(metrics.has_value());
+   EXPECT_TRUE(metrics->had_fault);
++  ASSERT_TRUE(metrics->fault_class.has_value());
++  ASSERT_TRUE(metrics->fault_phase.has_value());
++  EXPECT_EQ(metrics->fault_class.value(), FaultClass::kInvariantViolation);
++  EXPECT_EQ(metrics->fault_phase.value(), StepPhase::kCommit);
+ 
+   EXPECT_TRUE(service.Recover());
+   EXPECT_EQ(service.state(), EngineState::kPaused);
+diff --git a/chrome/browser/helium/deterministic/step_transaction_orchestrator.cc b/chrome/browser/helium/deterministic/step_transaction_orchestrator.cc
+index 4e9a93d..6afbb17 100644
+--- a/chrome/browser/helium/deterministic/step_transaction_orchestrator.cc
++++ b/chrome/browser/helium/deterministic/step_transaction_orchestrator.cc
+@@ -76,7 +76,7 @@ void StepTransactionOrchestrator::FinalizeCommitSuccess() {
+ 
+   StepTransaction tx = active_.value();
+   tx.commit_done = true;
+-  if (auto metrics = BuildStepMetrics(tx, /*had_fault=*/false)) {
++  if (auto metrics = BuildStepMetrics(tx)) {
+     last_metrics_ = metrics;
+   }
+   active_.reset();
+@@ -91,14 +91,15 @@ bool StepTransactionOrchestrator::FinalizeCommitFailure() {
+   return true;
+ }
+ 
+-bool StepTransactionOrchestrator::FailActiveTransaction() {
++bool StepTransactionOrchestrator::FailActiveTransaction(FaultClass fault_class,
++                                                    StepPhase fault_phase) {
+   if (!active_.has_value()) {
+     return false;
+   }
+ 
+   StepTransaction tx = active_.value();
+   tx.commit_done = true;
+-  if (auto metrics = BuildStepMetrics(tx, /*had_fault=*/true)) {
++  if (auto metrics = BuildStepMetrics(tx, fault_class, fault_phase)) {
+     last_metrics_ = metrics;
+   }
+   active_.reset();
+diff --git a/chrome/browser/helium/deterministic/step_transaction_orchestrator.h b/chrome/browser/helium/deterministic/step_transaction_orchestrator.h
+index 9391ad1..27e9906 100644
+--- a/chrome/browser/helium/deterministic/step_transaction_orchestrator.h
++++ b/chrome/browser/helium/deterministic/step_transaction_orchestrator.h
+@@ -28,7 +28,7 @@ class StepTransactionOrchestrator {
+   bool CanCommit(uint64_t step_id) const;
+   void FinalizeCommitSuccess();
+   bool FinalizeCommitFailure();
+-  bool FailActiveTransaction();
++  bool FailActiveTransaction(FaultClass fault_class, StepPhase fault_phase);
+ 
+   bool has_active_transaction() const { return active_.has_value(); }
+   std::optional<uint64_t> active_step_id() const;
+diff --git a/chrome/browser/helium/deterministic/step_transaction_orchestrator_unittest.cc b/chrome/browser/helium/deterministic/step_transaction_orchestrator_unittest.cc
+index f86e41d..c381702 100644
+--- a/chrome/browser/helium/deterministic/step_transaction_orchestrator_unittest.cc
++++ b/chrome/browser/helium/deterministic/step_transaction_orchestrator_unittest.cc
+@@ -56,12 +56,17 @@ TEST(StepTransactionOrchestratorTest, CommitAndFaultProduceMetrics) {
+   StepTicket faulted{.step_id = 3, .target_virtual_time = base::Milliseconds(50)};
+   ASSERT_TRUE(orchestrator.Begin(faulted));
+   EXPECT_TRUE(orchestrator.MarkPhaseDone(StepPhase::kTick, base::Milliseconds(1)));
+-  EXPECT_TRUE(orchestrator.FailActiveTransaction());
++  EXPECT_TRUE(orchestrator.FailActiveTransaction(FaultClass::kCaptureTimeout,
++                                             StepPhase::kCapture));
+ 
+   auto fault_metrics = orchestrator.last_metrics();
+   ASSERT_TRUE(fault_metrics.has_value());
+   EXPECT_EQ(fault_metrics->step_id, 3u);
+   EXPECT_TRUE(fault_metrics->had_fault);
++  ASSERT_TRUE(fault_metrics->fault_class.has_value());
++  ASSERT_TRUE(fault_metrics->fault_phase.has_value());
++  EXPECT_EQ(fault_metrics->fault_class.value(), FaultClass::kCaptureTimeout);
++  EXPECT_EQ(fault_metrics->fault_phase.value(), StepPhase::kCapture);
+ }
+ 
+ }  // namespace helium::deterministic
+diff --git a/chrome/browser/helium/deterministic/step_transaction_types.h b/chrome/browser/helium/deterministic/step_transaction_types.h
+index 360cb3b..643b4b1 100644
+--- a/chrome/browser/helium/deterministic/step_transaction_types.h
++++ b/chrome/browser/helium/deterministic/step_transaction_types.h
+@@ -10,6 +10,7 @@
+ #include <optional>
+ 
+ #include "base/time/time.h"
++#include "chrome/browser/helium/deterministic/virtual_time_controller.h"
+ 
+ namespace helium::deterministic {
+ 
+@@ -36,6 +37,8 @@ struct StepMetrics {
+   base::TimeDelta virtual_time;
+   StepTimings timings;
+   bool had_fault = false;
++  std::optional<FaultClass> fault_class;
++  std::optional<StepPhase> fault_phase;
+ };
+ 
+ struct StepTransaction {
+@@ -74,8 +77,10 @@ inline bool IsFullyCompleted(const StepTransaction& tx) {
+          tx.encode_done && tx.commit_done;
+ }
+ 
+-inline std::optional<StepMetrics> BuildStepMetrics(const StepTransaction& tx,
+-                                                   bool had_fault) {
++inline std::optional<StepMetrics> BuildStepMetrics(
++    const StepTransaction& tx,
++    std::optional<FaultClass> fault_class = std::nullopt,
++    std::optional<StepPhase> fault_phase = std::nullopt) {
+   if (!tx.commit_done) {
+     return std::nullopt;
+   }
+@@ -84,7 +89,9 @@ inline std::optional<StepMetrics> BuildStepMetrics(const StepTransaction& tx,
+       .step_id = tx.step_id,
+       .virtual_time = tx.target_virtual_time,
+       .timings = tx.timings,
+-      .had_fault = had_fault,
++      .had_fault = fault_class.has_value(),
++      .fault_class = fault_class,
++      .fault_phase = fault_phase,
+   };
+ }
+ 
+diff --git a/chrome/browser/helium/deterministic/step_transaction_types_unittest.cc b/chrome/browser/helium/deterministic/step_transaction_types_unittest.cc
+index d61a8f1..15150c5 100644
+--- a/chrome/browser/helium/deterministic/step_transaction_types_unittest.cc
++++ b/chrome/browser/helium/deterministic/step_transaction_types_unittest.cc
+@@ -12,13 +12,18 @@ TEST(StepTransactionTypesTest, BuildStepMetricsRequiresCommittedTransaction) {
+   StepTransaction tx;
+   tx.step_id = 7;
+ 
+-  EXPECT_FALSE(BuildStepMetrics(tx, /*had_fault=*/false).has_value());
++  EXPECT_FALSE(BuildStepMetrics(tx).has_value());
+ 
+   tx.commit_done = true;
+-  auto metrics = BuildStepMetrics(tx, /*had_fault=*/true);
++  auto metrics = BuildStepMetrics(tx, FaultClass::kInvariantViolation,
++                                  StepPhase::kCapture);
+   ASSERT_TRUE(metrics.has_value());
+   EXPECT_EQ(metrics->step_id, 7u);
+   EXPECT_TRUE(metrics->had_fault);
++  ASSERT_TRUE(metrics->fault_class.has_value());
++  ASSERT_TRUE(metrics->fault_phase.has_value());
++  EXPECT_EQ(metrics->fault_class.value(), FaultClass::kInvariantViolation);
++  EXPECT_EQ(metrics->fault_phase.value(), StepPhase::kCapture);
+ }
+ 
+ TEST(StepTransactionTypesTest, PhaseHelpersReportCompletion) {
