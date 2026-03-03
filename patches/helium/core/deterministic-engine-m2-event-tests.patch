@@ -1,0 +1,55 @@
+diff --git a/chrome/browser/helium/deterministic/deterministic_session_service_unittest.cc b/chrome/browser/helium/deterministic/deterministic_session_service_unittest.cc
+index da013ca..c9c5d4e 100644
+--- a/chrome/browser/helium/deterministic/deterministic_session_service_unittest.cc
++++ b/chrome/browser/helium/deterministic/deterministic_session_service_unittest.cc
+@@ -120,6 +120,50 @@ TEST(DeterministicSessionServiceTest, SnapshotReflectsLifecycleAndProgress) {
+   EXPECT_EQ(committed.last_step_metrics->step_id, 1u);
+ }
+ 
++
++TEST(DeterministicSessionServiceTest, EmitsStepCommittedEventOnCommit) {
++  DeterministicSessionService service;
++  ASSERT_TRUE(service.CreateSession("evt", SessionConfig()));
++  ASSERT_TRUE(service.StartStepping());
++
++  auto ticket = service.BeginStep();
++  ASSERT_TRUE(ticket.has_value());
++  EXPECT_TRUE(service.MarkStepPhaseDone(StepPhase::kTick, base::Milliseconds(1)));
++  EXPECT_TRUE(service.MarkStepPhaseDone(StepPhase::kRender, base::Milliseconds(2)));
++  EXPECT_TRUE(service.MarkStepPhaseDone(StepPhase::kPresent, base::Milliseconds(3)));
++  EXPECT_TRUE(service.MarkStepPhaseDone(StepPhase::kCapture, base::Milliseconds(4)));
++  EXPECT_TRUE(service.MarkStepPhaseDone(StepPhase::kEncode, base::Milliseconds(5)));
++  ASSERT_TRUE(service.CommitStep(ticket->step_id));
++
++  auto evt = service.last_step_committed_event();
++  ASSERT_TRUE(evt.has_value());
++  EXPECT_EQ(evt->session_id, "evt");
++  EXPECT_EQ(evt->step_id, 1u);
++  EXPECT_EQ(evt->timings.render.InMilliseconds(), 2);
++}
++
++
++TEST(DeterministicSessionServiceTest, EmitsFaultEventOnFailStep) {
++  DeterministicSessionService service;
++  ASSERT_TRUE(service.CreateSession("evt-fault", SessionConfig()));
++  ASSERT_TRUE(service.StartRunning());
++
++  auto ticket = service.BeginStep();
++  ASSERT_TRUE(ticket.has_value());
++  EXPECT_TRUE(service.MarkStepPhaseDone(StepPhase::kTick, base::Milliseconds(1)));
++
++  ASSERT_TRUE(service.FailStep(FaultClass::kInvariantViolation, "boom"));
++
++  auto evt = service.last_fault_event();
++  ASSERT_TRUE(evt.has_value());
++  EXPECT_EQ(evt->session_id, "evt-fault");
++  EXPECT_EQ(evt->fault_class, FaultClass::kInvariantViolation);
++  ASSERT_TRUE(evt->fault_phase.has_value());
++  EXPECT_EQ(evt->fault_phase.value(), StepPhase::kCommit);
++  ASSERT_TRUE(evt->step_id.has_value());
++  EXPECT_EQ(evt->step_id.value(), 1u);
++}
++
+ TEST(DeterministicSessionServiceTest, FaultRecoveryAndStop) {
+   DeterministicSessionService service;
+   ASSERT_TRUE(service.CreateSession("s", SessionConfig()));

@@ -1,0 +1,72 @@
+diff --git a/chrome/browser/helium/deterministic/deterministic_events.h b/chrome/browser/helium/deterministic/deterministic_events.h
+new file mode 100644
+index 0000000..ed70a21
+--- /dev/null
++++ b/chrome/browser/helium/deterministic/deterministic_events.h
+@@ -0,0 +1,65 @@
++// Copyright 2026 The Helium Authors
++// You can use, redistribute, and/or modify this source code under
++// the terms of the GPL-3.0 license that can be found in the LICENSE file.
++
++#ifndef CHROME_BROWSER_HELIUM_DETERMINISTIC_DETERMINISTIC_EVENTS_H_
++#define CHROME_BROWSER_HELIUM_DETERMINISTIC_DETERMINISTIC_EVENTS_H_
++
++#include <stdint.h>
++
++#include <optional>
++#include <string>
++#include <utility>
++
++#include "base/time/time.h"
++#include "chrome/browser/helium/deterministic/step_transaction_types.h"
++#include "chrome/browser/helium/deterministic/virtual_time_controller.h"
++
++namespace helium::deterministic {
++
++struct StepCommittedEvent {
++  std::string session_id;
++  uint64_t step_id = 0;
++  base::TimeDelta virtual_time;
++  StepTimings timings;
++};
++
++struct FaultEvent {
++  std::string session_id;
++  FaultClass fault_class = FaultClass::kInvariantViolation;
++  std::optional<StepPhase> fault_phase;
++  std::optional<uint64_t> step_id;
++  base::TimeDelta virtual_time;
++  std::string detail;
++};
++
++inline StepCommittedEvent BuildStepCommittedEvent(
++    const std::string& session_id,
++    const StepMetrics& metrics) {
++  return StepCommittedEvent{
++      .session_id = session_id,
++      .step_id = metrics.step_id,
++      .virtual_time = metrics.virtual_time,
++      .timings = metrics.timings,
++  };
++}
++
++inline FaultEvent BuildFaultEvent(const std::string& session_id,
++                                  FaultClass fault_class,
++                                  std::string detail,
++                                  base::TimeDelta virtual_time,
++                                  std::optional<StepMetrics> metrics) {
++  return FaultEvent{
++      .session_id = session_id,
++      .fault_class = fault_class,
++      .fault_phase = metrics.has_value() ? metrics->fault_phase
++                                         : std::optional<StepPhase>(),
++      .step_id = metrics.has_value() ? std::optional<uint64_t>(metrics->step_id)
++                                     : std::optional<uint64_t>(),
++      .virtual_time = virtual_time,
++      .detail = std::move(detail),
++  };
++}
++
++}  // namespace helium::deterministic
++
++#endif  // CHROME_BROWSER_HELIUM_DETERMINISTIC_DETERMINISTIC_EVENTS_H_
