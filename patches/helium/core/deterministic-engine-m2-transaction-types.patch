@@ -1,0 +1,145 @@
+diff --git a/chrome/browser/helium/deterministic/step_transaction_types.h b/chrome/browser/helium/deterministic/step_transaction_types.h
+new file mode 100644
+index 0000000..360cb3b
+--- /dev/null
++++ b/chrome/browser/helium/deterministic/step_transaction_types.h
+@@ -0,0 +1,93 @@
++// Copyright 2026 The Helium Authors
++// You can use, redistribute, and/or modify this source code under
++// the terms of the GPL-3.0 license that can be found in the LICENSE file.
++
++#ifndef CHROME_BROWSER_HELIUM_DETERMINISTIC_STEP_TRANSACTION_TYPES_H_
++#define CHROME_BROWSER_HELIUM_DETERMINISTIC_STEP_TRANSACTION_TYPES_H_
++
++#include <stdint.h>
++
++#include <optional>
++
++#include "base/time/time.h"
++
++namespace helium::deterministic {
++
++enum class StepPhase {
++  kTick,
++  kRender,
++  kPresent,
++  kCapture,
++  kEncode,
++  kCommit,
++};
++
++struct StepTimings {
++  base::TimeDelta tick;
++  base::TimeDelta render;
++  base::TimeDelta present;
++  base::TimeDelta capture;
++  base::TimeDelta encode;
++  base::TimeDelta commit;
++};
++
++struct StepMetrics {
++  uint64_t step_id = 0;
++  base::TimeDelta virtual_time;
++  StepTimings timings;
++  bool had_fault = false;
++};
++
++struct StepTransaction {
++  uint64_t step_id = 0;
++  base::TimeDelta target_virtual_time;
++  StepTimings timings;
++  bool tick_done = false;
++  bool render_done = false;
++  bool present_done = false;
++  bool capture_done = false;
++  bool encode_done = false;
++  bool commit_done = false;
++};
++
++inline bool IsPhaseComplete(const StepTransaction& tx, StepPhase phase) {
++  switch (phase) {
++    case StepPhase::kTick:
++      return tx.tick_done;
++    case StepPhase::kRender:
++      return tx.render_done;
++    case StepPhase::kPresent:
++      return tx.present_done;
++    case StepPhase::kCapture:
++      return tx.capture_done;
++    case StepPhase::kEncode:
++      return tx.encode_done;
++    case StepPhase::kCommit:
++      return tx.commit_done;
++  }
++
++  return false;
++}
++
++inline bool IsFullyCompleted(const StepTransaction& tx) {
++  return tx.tick_done && tx.render_done && tx.present_done && tx.capture_done &&
++         tx.encode_done && tx.commit_done;
++}
++
++inline std::optional<StepMetrics> BuildStepMetrics(const StepTransaction& tx,
++                                                   bool had_fault) {
++  if (!tx.commit_done) {
++    return std::nullopt;
++  }
++
++  return StepMetrics{
++      .step_id = tx.step_id,
++      .virtual_time = tx.target_virtual_time,
++      .timings = tx.timings,
++      .had_fault = had_fault,
++  };
++}
++
++}  // namespace helium::deterministic
++
++#endif  // CHROME_BROWSER_HELIUM_DETERMINISTIC_STEP_TRANSACTION_TYPES_H_
+diff --git a/chrome/browser/helium/deterministic/step_transaction_types_unittest.cc b/chrome/browser/helium/deterministic/step_transaction_types_unittest.cc
+new file mode 100644
+index 0000000..d61a8f1
+--- /dev/null
++++ b/chrome/browser/helium/deterministic/step_transaction_types_unittest.cc
+@@ -0,0 +1,40 @@
++// Copyright 2026 The Helium Authors
++// You can use, redistribute, and/or modify this source code under
++// the terms of the GPL-3.0 license that can be found in the LICENSE file.
++
++#include "chrome/browser/helium/deterministic/step_transaction_types.h"
++
++#include "testing/gtest/include/gtest/gtest.h"
++
++namespace helium::deterministic {
++
++TEST(StepTransactionTypesTest, BuildStepMetricsRequiresCommittedTransaction) {
++  StepTransaction tx;
++  tx.step_id = 7;
++
++  EXPECT_FALSE(BuildStepMetrics(tx, /*had_fault=*/false).has_value());
++
++  tx.commit_done = true;
++  auto metrics = BuildStepMetrics(tx, /*had_fault=*/true);
++  ASSERT_TRUE(metrics.has_value());
++  EXPECT_EQ(metrics->step_id, 7u);
++  EXPECT_TRUE(metrics->had_fault);
++}
++
++TEST(StepTransactionTypesTest, PhaseHelpersReportCompletion) {
++  StepTransaction tx;
++  EXPECT_FALSE(IsFullyCompleted(tx));
++  EXPECT_FALSE(IsPhaseComplete(tx, StepPhase::kCapture));
++
++  tx.tick_done = true;
++  tx.render_done = true;
++  tx.present_done = true;
++  tx.capture_done = true;
++  tx.encode_done = true;
++  tx.commit_done = true;
++
++  EXPECT_TRUE(IsFullyCompleted(tx));
++  EXPECT_TRUE(IsPhaseComplete(tx, StepPhase::kCapture));
++}
++
++}  // namespace helium::deterministic
