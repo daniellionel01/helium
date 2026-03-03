@@ -1,0 +1,192 @@
+diff --git a/chrome/browser/helium/deterministic/deterministic_control_service.cc b/chrome/browser/helium/deterministic/deterministic_control_service.cc
+index 7d88f0f..acdb545 100644
+--- a/chrome/browser/helium/deterministic/deterministic_control_service.cc
++++ b/chrome/browser/helium/deterministic/deterministic_control_service.cc
+@@ -12,12 +12,14 @@ CreateSessionResult DeterministicControlService::CreateSession(
+ 
+   if (request.session_id.empty()) {
+     result.error = "session id is required";
++    result.error_code = ControlErrorCode::kInvalidArgument;
+     result.snapshot = session_.GetSnapshot();
+     return result;
+   }
+ 
+   if (!session_.CreateSession(request.session_id, request.config)) {
+     result.error = "session creation failed";
++    result.error_code = ControlErrorCode::kInvalidState;
+     result.snapshot = session_.GetSnapshot();
+     return result;
+   }
+@@ -34,6 +36,7 @@ ConfigureResult DeterministicControlService::Configure(
+   result.ok = session_.Configure(config);
+   if (!result.ok) {
+     result.error = "unable to configure session";
++    result.error_code = ControlErrorCode::kInvalidState;
+   }
+   result.snapshot = session_.GetSnapshot();
+   return result;
+@@ -61,6 +64,7 @@ StartResult DeterministicControlService::StartStepping() {
+   result.ok = session_.StartStepping();
+   if (!result.ok) {
+     result.error = "unable to start stepping";
++    result.error_code = ControlErrorCode::kInvalidState;
+   }
+   result.snapshot = session_.GetSnapshot();
+   if (auto evt = session_.last_fault_event()) {
+@@ -75,6 +79,7 @@ StartResult DeterministicControlService::StartRunning() {
+   result.ok = session_.StartRunning();
+   if (!result.ok) {
+     result.error = "unable to start running";
++    result.error_code = ControlErrorCode::kInvalidState;
+   }
+   result.snapshot = session_.GetSnapshot();
+   if (auto evt = session_.last_fault_event()) {
+@@ -89,6 +94,7 @@ PauseResult DeterministicControlService::Pause() {
+   result.ok = session_.Pause();
+   if (!result.ok) {
+     result.error = "unable to pause";
++    result.error_code = ControlErrorCode::kInvalidState;
+   }
+   result.snapshot = session_.GetSnapshot();
+   if (auto evt = session_.last_fault_event()) {
+@@ -103,6 +109,7 @@ StepResult DeterministicControlService::Step(const StepRequest& request) {
+ 
+   if (request.frames == 0) {
+     result.error = "frames must be >= 1";
++    result.error_code = ControlErrorCode::kInvalidArgument;
+     result.snapshot = session_.GetSnapshot();
+     return result;
+   }
+@@ -111,6 +118,7 @@ StepResult DeterministicControlService::Step(const StepRequest& request) {
+     auto ticket = session_.BeginStep();
+     if (!ticket.has_value()) {
+       result.error = "unable to begin step";
++      result.error_code = ControlErrorCode::kNoSession;
+       result.snapshot = session_.GetSnapshot();
+       if (auto evt = session_.last_fault_event()) {
+         result.last_fault_class = evt->fault_class;
+@@ -126,6 +134,7 @@ StepResult DeterministicControlService::Step(const StepRequest& request) {
+         !session_.MarkStepPhaseDone(StepPhase::kEncode, base::Microseconds(0)) ||
+         !session_.CommitStep(ticket->step_id)) {
+       result.error = "step commit failed";
++      result.error_code = ControlErrorCode::kStepFailed;
+       result.snapshot = session_.GetSnapshot();
+       if (auto evt = session_.last_fault_event()) {
+         result.last_fault_class = evt->fault_class;
+@@ -151,6 +160,7 @@ StopResult DeterministicControlService::Stop() {
+   result.ok = session_.Stop();
+   if (!result.ok) {
+     result.error = "unable to stop";
++    result.error_code = ControlErrorCode::kNoSession;
+   }
+   return result;
+ }
+diff --git a/chrome/browser/helium/deterministic/deterministic_control_service_unittest.cc b/chrome/browser/helium/deterministic/deterministic_control_service_unittest.cc
+index c7c5e5d..7943db3 100644
+--- a/chrome/browser/helium/deterministic/deterministic_control_service_unittest.cc
++++ b/chrome/browser/helium/deterministic/deterministic_control_service_unittest.cc
+@@ -13,6 +13,8 @@ TEST(DeterministicControlServiceTest, CreateSessionValidatesInput) {
+ 
+   auto bad = control.CreateSession(CreateSessionRequest{.session_id = ""});
+   EXPECT_FALSE(bad.ok);
++  ASSERT_TRUE(bad.error_code.has_value());
++  EXPECT_EQ(bad.error_code.value(), ControlErrorCode::kInvalidArgument);
+ 
+   auto good =
+       control.CreateSession(CreateSessionRequest{.session_id = "control-session"});
+@@ -25,6 +27,8 @@ TEST(DeterministicControlServiceTest, StepFailsBeforeStartingStepping) {
+ 
+   auto step = control.Step(StepRequest{.frames = 1});
+   EXPECT_FALSE(step.ok);
++  ASSERT_TRUE(step.error_code.has_value());
++  EXPECT_EQ(step.error_code.value(), ControlErrorCode::kNoSession);
+ }
+ 
+ TEST(DeterministicControlServiceTest, StepCommitsRequestedFrames) {
+@@ -50,6 +54,8 @@ TEST(DeterministicControlServiceTest, ConfigureRejectsInvalidBudget) {
+ 
+   auto result = control.Configure(config);
+   EXPECT_FALSE(result.ok);
++  ASSERT_TRUE(result.error_code.has_value());
++  EXPECT_EQ(result.error_code.value(), ControlErrorCode::kInvalidState);
+ }
+ 
+ TEST(DeterministicControlServiceTest, ConfigureFailsWhileRunning) {
+@@ -64,6 +70,8 @@ TEST(DeterministicControlServiceTest, ConfigureFailsWhileRunning) {
+ 
+   auto result = control.Configure(config);
+   EXPECT_FALSE(result.ok);
++  ASSERT_TRUE(result.error_code.has_value());
++  EXPECT_EQ(result.error_code.value(), ControlErrorCode::kInvalidState);
+ }
+ 
+ TEST(DeterministicControlServiceTest, ZeroFrameStepIsRejected) {
+@@ -73,6 +81,8 @@ TEST(DeterministicControlServiceTest, ZeroFrameStepIsRejected) {
+ 
+   auto step = control.Step(StepRequest{.frames = 0});
+   EXPECT_FALSE(step.ok);
++  ASSERT_TRUE(step.error_code.has_value());
++  EXPECT_EQ(step.error_code.value(), ControlErrorCode::kInvalidArgument);
+ }
+ 
+ TEST(DeterministicControlServiceTest, StateIncludesRecentEvents) {
+diff --git a/chrome/browser/helium/deterministic/deterministic_control_types.h b/chrome/browser/helium/deterministic/deterministic_control_types.h
+index ad6d1da..9cb0db4 100644
+--- a/chrome/browser/helium/deterministic/deterministic_control_types.h
++++ b/chrome/browser/helium/deterministic/deterministic_control_types.h
+@@ -22,15 +22,24 @@ struct CreateSessionRequest {
+   SessionConfig config;
+ };
+ 
++enum class ControlErrorCode {
++  kInvalidArgument,
++  kInvalidState,
++  kNoSession,
++  kStepFailed,
++};
++
+ struct CreateSessionResult {
+   bool ok = false;
+   std::string error;
++  std::optional<ControlErrorCode> error_code;
+   DeterministicSessionSnapshot snapshot;
+ };
+ 
+ struct StartResult {
+   bool ok = false;
+   std::string error;
++  std::optional<ControlErrorCode> error_code;
+   DeterministicSessionSnapshot snapshot;
+   std::optional<FaultClass> last_fault_class;
+   std::optional<StepPhase> last_fault_phase;
+@@ -39,12 +48,14 @@ struct StartResult {
+ struct ConfigureResult {
+   bool ok = false;
+   std::string error;
++  std::optional<ControlErrorCode> error_code;
+   DeterministicSessionSnapshot snapshot;
+ };
+ 
+ struct PauseResult {
+   bool ok = false;
+   std::string error;
++  std::optional<ControlErrorCode> error_code;
+   DeterministicSessionSnapshot snapshot;
+   std::optional<FaultClass> last_fault_class;
+   std::optional<StepPhase> last_fault_phase;
+@@ -53,6 +64,7 @@ struct PauseResult {
+ struct StopResult {
+   bool ok = false;
+   std::string error;
++  std::optional<ControlErrorCode> error_code;
+ };
+ 
+ struct StepRequest {
+@@ -62,6 +74,7 @@ struct StepRequest {
+ struct StepResult {
+   bool ok = false;
+   std::string error;
++  std::optional<ControlErrorCode> error_code;
+   uint64_t committed_frames = 0;
+   DeterministicSessionSnapshot snapshot;
+   std::optional<FaultClass> last_fault_class;
