@@ -1,0 +1,48 @@
+diff --git a/chrome/browser/helium/deterministic/deterministic_control_service_unittest.cc b/chrome/browser/helium/deterministic/deterministic_control_service_unittest.cc
+index cc261cb..c7c5e5d 100644
+--- a/chrome/browser/helium/deterministic/deterministic_control_service_unittest.cc
++++ b/chrome/browser/helium/deterministic/deterministic_control_service_unittest.cc
+@@ -38,6 +38,43 @@ TEST(DeterministicControlServiceTest, StepCommitsRequestedFrames) {
+   EXPECT_EQ(step.snapshot.last_committed_step_id, 2u);
+ }
+ 
++
++TEST(DeterministicControlServiceTest, ConfigureRejectsInvalidBudget) {
++  DeterministicControlService control;
++  ASSERT_TRUE(control.CreateSession(CreateSessionRequest{.session_id = "cfg"}).ok);
++
++  SessionConfig config;
++  config.fps = 60;
++  config.strictness = Strictness::kBalanced;
++  config.network_budget_per_step_ms = -1;
++
++  auto result = control.Configure(config);
++  EXPECT_FALSE(result.ok);
++}
++
++TEST(DeterministicControlServiceTest, ConfigureFailsWhileRunning) {
++  DeterministicControlService control;
++  ASSERT_TRUE(control.CreateSession(CreateSessionRequest{.session_id = "run"}).ok);
++  ASSERT_TRUE(control.StartRunning().ok);
++
++  SessionConfig config;
++  config.fps = 60;
++  config.strictness = Strictness::kBalanced;
++  config.network_budget_per_step_ms = 3;
++
++  auto result = control.Configure(config);
++  EXPECT_FALSE(result.ok);
++}
++
++TEST(DeterministicControlServiceTest, ZeroFrameStepIsRejected) {
++  DeterministicControlService control;
++  ASSERT_TRUE(control.CreateSession(CreateSessionRequest{.session_id = "z"}).ok);
++  ASSERT_TRUE(control.StartStepping().ok);
++
++  auto step = control.Step(StepRequest{.frames = 0});
++  EXPECT_FALSE(step.ok);
++}
++
+ TEST(DeterministicControlServiceTest, StateIncludesRecentEvents) {
+   DeterministicControlService control;
+   ASSERT_TRUE(control.CreateSession(CreateSessionRequest{.session_id = "s"}).ok);

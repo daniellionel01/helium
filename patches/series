@@ -221,6 +221,9 @@ helium/core/deterministic-engine-m2-event-stream-integration-tests.patch
 helium/core/deterministic-engine-m2-control-types.patch
 helium/core/deterministic-engine-m2-control-service.patch
 helium/core/deterministic-engine-m2-control-tests.patch
+helium/core/deterministic-engine-m2-control-configure.patch
+helium/core/deterministic-engine-m2-control-fault-results.patch
+helium/core/deterministic-engine-m2-control-configure-tests.patch
 helium/core/deterministic-engine-m2-control-build-gn.patch
 helium/core/add-low-power-framerate-flag.patch
 helium/core/add-update-channel-flag.patch

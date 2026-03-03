@@ -1,0 +1,71 @@
+diff --git a/chrome/browser/helium/deterministic/deterministic_control_service.cc b/chrome/browser/helium/deterministic/deterministic_control_service.cc
+index 4fc97f6..5c10fe1 100644
+--- a/chrome/browser/helium/deterministic/deterministic_control_service.cc
++++ b/chrome/browser/helium/deterministic/deterministic_control_service.cc
+@@ -27,6 +27,35 @@ CreateSessionResult DeterministicControlService::CreateSession(
+   return result;
+ }
+ 
++
++ConfigureResult DeterministicControlService::Configure(
++    const SessionConfig& config) {
++  ConfigureResult result;
++  result.ok = session_.Configure(config);
++  if (!result.ok) {
++    result.error = "unable to configure session";
++  }
++  result.snapshot = session_.GetSnapshot();
++  return result;
++}
++
++ConfigureResult DeterministicControlService::SetStrictness(Strictness strictness) {
++  SessionConfig config;
++  config.fps = 60;
++  config.strictness = strictness;
++  config.network_budget_per_step_ms = 3;
++  return Configure(config);
++}
++
++ConfigureResult DeterministicControlService::SetNetworkBudgetPerStepMs(
++    int budget_ms) {
++  SessionConfig config;
++  config.fps = 60;
++  config.strictness = Strictness::kBalanced;
++  config.network_budget_per_step_ms = budget_ms;
++  return Configure(config);
++}
++
+ StartResult DeterministicControlService::StartStepping() {
+   StartResult result;
+   result.ok = session_.StartStepping();
+diff --git a/chrome/browser/helium/deterministic/deterministic_control_service.h b/chrome/browser/helium/deterministic/deterministic_control_service.h
+index f9d1d97..ad446c5 100644
+--- a/chrome/browser/helium/deterministic/deterministic_control_service.h
++++ b/chrome/browser/helium/deterministic/deterministic_control_service.h
+@@ -20,6 +20,9 @@ class DeterministicControlService {
+       delete;
+ 
+   CreateSessionResult CreateSession(const CreateSessionRequest& request);
++  ConfigureResult Configure(const SessionConfig& config);
++  ConfigureResult SetStrictness(Strictness strictness);
++  ConfigureResult SetNetworkBudgetPerStepMs(int budget_ms);
+   StartResult StartStepping();
+   StartResult StartRunning();
+   PauseResult Pause();
+diff --git a/chrome/browser/helium/deterministic/deterministic_control_types.h b/chrome/browser/helium/deterministic/deterministic_control_types.h
+index 0ced404..9ebe47b 100644
+--- a/chrome/browser/helium/deterministic/deterministic_control_types.h
++++ b/chrome/browser/helium/deterministic/deterministic_control_types.h
+@@ -34,6 +34,12 @@ struct StartResult {
+   DeterministicSessionSnapshot snapshot;
+ };
+ 
++struct ConfigureResult {
++  bool ok = false;
++  std::string error;
++  DeterministicSessionSnapshot snapshot;
++};
++
+ struct PauseResult {
+   bool ok = false;
+   std::string error;

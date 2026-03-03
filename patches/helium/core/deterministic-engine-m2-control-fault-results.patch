@@ -1,0 +1,101 @@
+diff --git a/chrome/browser/helium/deterministic/deterministic_control_service.cc b/chrome/browser/helium/deterministic/deterministic_control_service.cc
+index 5c10fe1..7d88f0f 100644
+--- a/chrome/browser/helium/deterministic/deterministic_control_service.cc
++++ b/chrome/browser/helium/deterministic/deterministic_control_service.cc
+@@ -63,6 +63,10 @@ StartResult DeterministicControlService::StartStepping() {
+     result.error = "unable to start stepping";
+   }
+   result.snapshot = session_.GetSnapshot();
++  if (auto evt = session_.last_fault_event()) {
++    result.last_fault_class = evt->fault_class;
++    result.last_fault_phase = evt->fault_phase;
++  }
+   return result;
+ }
+ 
+@@ -73,6 +77,10 @@ StartResult DeterministicControlService::StartRunning() {
+     result.error = "unable to start running";
+   }
+   result.snapshot = session_.GetSnapshot();
++  if (auto evt = session_.last_fault_event()) {
++    result.last_fault_class = evt->fault_class;
++    result.last_fault_phase = evt->fault_phase;
++  }
+   return result;
+ }
+ 
+@@ -83,6 +91,10 @@ PauseResult DeterministicControlService::Pause() {
+     result.error = "unable to pause";
+   }
+   result.snapshot = session_.GetSnapshot();
++  if (auto evt = session_.last_fault_event()) {
++    result.last_fault_class = evt->fault_class;
++    result.last_fault_phase = evt->fault_phase;
++  }
+   return result;
+ }
+ 
+@@ -100,6 +112,10 @@ StepResult DeterministicControlService::Step(const StepRequest& request) {
+     if (!ticket.has_value()) {
+       result.error = "unable to begin step";
+       result.snapshot = session_.GetSnapshot();
++      if (auto evt = session_.last_fault_event()) {
++        result.last_fault_class = evt->fault_class;
++        result.last_fault_phase = evt->fault_phase;
++      }
+       return result;
+     }
+ 
+@@ -111,6 +127,10 @@ StepResult DeterministicControlService::Step(const StepRequest& request) {
+         !session_.CommitStep(ticket->step_id)) {
+       result.error = "step commit failed";
+       result.snapshot = session_.GetSnapshot();
++      if (auto evt = session_.last_fault_event()) {
++        result.last_fault_class = evt->fault_class;
++        result.last_fault_phase = evt->fault_phase;
++      }
+       return result;
+     }
+ 
+@@ -119,6 +139,10 @@ StepResult DeterministicControlService::Step(const StepRequest& request) {
+ 
+   result.ok = true;
+   result.snapshot = session_.GetSnapshot();
++  if (auto evt = session_.last_fault_event()) {
++    result.last_fault_class = evt->fault_class;
++    result.last_fault_phase = evt->fault_phase;
++  }
+   return result;
+ }
+ 
+diff --git a/chrome/browser/helium/deterministic/deterministic_control_types.h b/chrome/browser/helium/deterministic/deterministic_control_types.h
+index 9ebe47b..ad6d1da 100644
+--- a/chrome/browser/helium/deterministic/deterministic_control_types.h
++++ b/chrome/browser/helium/deterministic/deterministic_control_types.h
+@@ -32,6 +32,8 @@ struct StartResult {
+   bool ok = false;
+   std::string error;
+   DeterministicSessionSnapshot snapshot;
++  std::optional<FaultClass> last_fault_class;
++  std::optional<StepPhase> last_fault_phase;
+ };
+ 
+ struct ConfigureResult {
+@@ -44,6 +46,8 @@ struct PauseResult {
+   bool ok = false;
+   std::string error;
+   DeterministicSessionSnapshot snapshot;
++  std::optional<FaultClass> last_fault_class;
++  std::optional<StepPhase> last_fault_phase;
+ };
+ 
+ struct StopResult {
+@@ -60,6 +64,8 @@ struct StepResult {
+   std::string error;
+   uint64_t committed_frames = 0;
+   DeterministicSessionSnapshot snapshot;
++  std::optional<FaultClass> last_fault_class;
++  std::optional<StepPhase> last_fault_phase;
+ };
+ 
+ struct StateResult {
